@@ -19,11 +19,11 @@ const DEFAULT_ZOOM = 15.5
 interface Props {
   center?: [number, number]
   buildings: Building[]
-  activeBuildingId?: string
+  activeBuilding?: Building
   onBuildingClick: (building: Building) => void
 }
 
-export default function MapView({ center, buildings, activeBuildingId, onBuildingClick }: Props) {
+export default function MapView({ center, buildings, activeBuilding, onBuildingClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const buildingsRef = useRef<Building[]>(buildings)
@@ -108,7 +108,25 @@ export default function MapView({ center, buildings, activeBuildingId, onBuildin
         firstSymbolId,
       )
 
-      // ── Click handler ────────────────────────────────────────────────────────
+      // ── Selected building highlight ───────────────────────────────────────────
+      map.addSource('selected-building', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      map.addLayer({
+        id: 'selected-building-glow',
+        source: 'selected-building',
+        type: 'fill-extrusion',
+        paint: {
+          'fill-extrusion-color': '#60a5fa',
+          'fill-extrusion-height': ['get', 'height_m'],
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.5,
+        },
+      })
+
+      // ── Click handler (triage buildings) ─────────────────────────────────────
       map.on('click', 'triage-buildings-3d', (e) => {
         if (!e.features?.[0]) return
         const props = e.features[0].properties as { building_id: string }
@@ -116,12 +134,34 @@ export default function MapView({ center, buildings, activeBuildingId, onBuildin
         if (building) onBuildingClick(building)
       })
 
-      map.on('mouseenter', 'triage-buildings-3d', () => {
-        map.getCanvas().style.cursor = 'pointer'
+      // ── Click handler (base OSM buildings) ───────────────────────────────────
+      map.on('click', 'base-buildings-3d', (e) => {
+        if (!e.features?.[0]) return
+        // Highlight by injecting a synthetic building from the OSM feature
+        const f = e.features[0]
+        const props = f.properties ?? {}
+        const height = (props.height as number) ?? 8
+        const geometry = f.geometry as GeoJSON.Polygon
+        const syntheticBuilding: Building = {
+          id: String(f.id ?? Math.random()),
+          name: (props.name as string) || 'Unknown Building',
+          lat: e.lngLat.lat,
+          lng: e.lngLat.lng,
+          footprint: geometry.coordinates[0].map(([lng, lat]) => [lat, lng] as [number, number]),
+          triage_score: 0,
+          color: 'GREEN',
+          damage_probability: 0,
+          estimated_occupancy: 0,
+          material: 'unknown',
+          height_m: height,
+        }
+        onBuildingClick(syntheticBuilding)
       })
-      map.on('mouseleave', 'triage-buildings-3d', () => {
-        map.getCanvas().style.cursor = ''
-      })
+
+      map.on('mouseenter', 'triage-buildings-3d', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'triage-buildings-3d', () => { map.getCanvas().style.cursor = '' })
+      map.on('mouseenter', 'base-buildings-3d', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'base-buildings-3d', () => { map.getCanvas().style.cursor = '' })
 
       // Render initial buildings if already in state
       if (buildingsRef.current.length > 0) {
@@ -146,10 +186,13 @@ export default function MapView({ center, buildings, activeBuildingId, onBuildin
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    buildings.forEach((b) => {
-      map.setFeatureState({ source: 'triage-buildings', id: b.id }, { active: b.id === activeBuildingId })
+    const source = map.getSource('selected-building') as mapboxgl.GeoJSONSource | undefined
+    if (!source) return
+    source.setData({
+      type: 'FeatureCollection',
+      features: activeBuilding ? [buildingToFeature(activeBuilding)] : [],
     })
-  }, [activeBuildingId, buildings])
+  }, [activeBuilding])
 
   // Fly to new center
   useEffect(() => {
