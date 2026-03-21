@@ -13,6 +13,7 @@ import { useWebSocket } from '../_lib/useWebSocket'
 import ScenarioInput from './ScenarioInput'
 import ScoutPanel from './ScoutPanel'
 import RouteWalkthrough from './RouteWalkthrough'
+import LocationSearch from './LocationSearch'
 
 // Mapbox uses browser APIs — must be dynamically imported with no SSR
 const MapView = dynamic(() => import('./MapView'), { ssr: false })
@@ -185,13 +186,15 @@ export default function CommandCenter() {
       </div>
 
       {/* ── Top-left HUD ── */}
-      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
-        <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md">
+      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
+        <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md pointer-events-none">
           <span className="text-sm font-mono font-bold tracking-widest text-white">AEGIS-NET</span>
           <span className="text-xs font-mono text-slate-500 border-l border-white/10 pl-3">
             INCIDENT COMMAND
           </span>
         </div>
+
+        <LocationSearch onSelect={(center) => setMapCenter(center)} />
 
         {scenarioRunning && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 backdrop-blur-md pointer-events-none">
