@@ -93,44 +93,61 @@ One connection per browser client. Every frame is a JSON object with a top-level
 
 ---
 
-## Data Flow: `start_scenario`
+## Data Flow: `start_scenario` (Tasks 1–6 — Implemented)
 
 ```
 start_scenario (prompt, center, radius_m)
     │
-    ├─ parse prompt ──────────────── extract magnitude, epicenter, time_of_day
-    │                                (regex or Claude API)
+    ├─ parse prompt ──────────────── extract magnitude, time_of_day (regex)
     ├─ osm.fetch_buildings() ──────── Overpass API → list[BuildingData]
-    ├─ triage.score_buildings() ───── stub heuristic (→ Person C swap-in)
+    ├─ triage.score_buildings() ───── local heuristic (→ Person C swap-in)
     │   └─ assigns triage_score (0–100) + color (RED/ORANGE/YELLOW/GREEN)
     ├─ emit triage_result ──────────── all scored buildings, sorted by score desc
     │
-    └─ coordinator.auto_deploy()
-        ├─ top-3 buildings by score
-        ├─ alpha → asyncio.sleep(0) → scout_deployed + scout_report
-        ├─ bravo → asyncio.sleep(3) → scout_deployed + scout_report
-        └─ charlie → asyncio.sleep(6) → scout_deployed + scout_report
+    └─ Coordinator.auto_deploy(top_buildings[:3])   ← Task 6
+        ├─ alpha → asyncio.sleep(0s)  → Scout.arrive()
+        ├─ bravo → asyncio.sleep(3s)  → Scout.arrive()
+        └─ charlie → asyncio.sleep(6s) → Scout.arrive()
+
+deploy_scout (manual, any time)
+    └─ Coordinator.manual_deploy(building) → Scout.arrive()  [fire-and-forget]
+
+commander_message
+    └─ Coordinator.route_message(scout_id, message) → Scout.handle_question()
 ```
 
-## Data Flow: Scout Execution Loop
+## Data Flow: Scout Execution Loop (Task 5 — Implemented)
 
 ```
 Scout.arrive()
     ├─ streetview.calculate_viewpoints(footprint, epicenter)
     │   └─ 4–8 viewpoints, epicenter-facing first
     ├─ emit scout_deployed (status="arriving")
-    └─ analyze_viewpoint(viewpoints[0])
+    ├─ analyze_viewpoint(viewpoints[0])
+    ├─ emit scout_report
+    └─ emit scout_deployed (status="active")
 
 Scout.analyze_viewpoint(viewpoint)
-    ├─ state.check_findings()  ─── inject cross-ref context into prompt
+    ├─ state.format_cross_ref_context()  ─── inject nearby findings into prompt
     ├─ streetview.fetch_street_view_image()  ─── JPEG bytes
-    ├─ vlm.analyze_image()  ──────────────────── Claude Sonnet vision
+    ├─ vlm.analyze_image(image, system_prompt)  ─── Claude Sonnet vision
     │   └─ returns findings[], risk_level, recommended_action, approach_viable
-    │       + external_risks[] (for cross-ref detection)
-    ├─ annotation.annotate_image()  ──────────── stub (→ Person C)
-    ├─ state.write_finding()  ────────────────── if external_risks present
-    ├─ emit cross_reference  ─────────────────── if any findings consumed
+    │       + external_risks[] (written to SharedState for cross-ref detection)
+    ├─ state.write_findings()  ──────────────── persists external_risks
+    ├─ state.query_nearby()  ────────────────── find consumed cross-refs
+    ├─ emit cross_reference  ────────────────── once per (from_scout, to_scout) pair
+    ├─ annotation.annotate_image()  ─────────── stub (→ Person C)
+    └─ return ScoutReport
+
+Scout.handle_question(message)
+    ├─ detect cardinal direction in message → advance() if unvisited facing
+    ├─ build system_prompt + inject last 3 analysis summaries as context
+    ├─ vlm.analyze_image(image, system_prompt, user_message=message)
     └─ emit scout_report
+
+Note: conversation context is maintained as text summaries (self._analysis_summaries)
+rather than raw API message history. This avoids Anthropic's alternating-role
+constraint while providing meaningful context for follow-up questions.
 ```
 
 ---
@@ -181,11 +198,23 @@ In-memory only. No persistence between server restarts.
 # ConnectionManager  (main.py)
 _connections: dict[str, WebSocket]   # client_id → websocket
 
-# Coordinator  (agents/coordinator.py)
-scouts: dict[str, Scout]             # scout_id → Scout instance
+# main.py module-level state
+_scenario_state: dict[str, dict]      # client_id → scenario info + buildings_by_id
+_coordinators: dict[str, Coordinator] # client_id → Coordinator (owns scout registry)
 
-# SharedState  (agents/state.py)
-_findings: dict[str, list[Finding]]  # scout_id → findings with affected_area polygons
+# Coordinator  (agents/coordinator.py)
+scouts: dict[str, Scout]              # scout_id → Scout instance
+_tasks: list[asyncio.Task]            # live background tasks (self-cleaning on done)
+
+# SharedState  (agents/state.py)  ← module-level singleton get_shared_state()
+_records: list[_RiskRecord]          # all external risks written by scouts
+  _RiskRecord fields: scout_id, building_id, origin_lat, origin_lng,
+                      risk_type, direction, estimated_range_m
+
+# Scout  (agents/scout.py)
+_analysis_summaries: list[str]       # text summaries of completed analyses
+_emitted_cross_refs: set[tuple]      # (from_scout_id, to_scout_id) already emitted
+
 _pano_cache: dict[tuple, str]        # (lat, lng) → pano_id  (streetview.py)
 _osm_cache:  dict[tuple, list]       # (lat, lng, radius_m) → buildings  (osm.py)
 ```

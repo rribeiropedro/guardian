@@ -41,8 +41,16 @@ async def analyze_image(
     image_bytes: bytes,
     system_prompt: str,
     conversation_history: list[dict] | None = None,
+    user_message: str | None = None,
 ) -> VLMAnalysis:
     """Call Claude vision API and return a structured VLMAnalysis.
+
+    Args:
+        image_bytes: Raw JPEG image data.
+        system_prompt: System prompt describing the analysis task.
+        conversation_history: Unused; kept for API compatibility. Pass None.
+        user_message: Optional text prepended to the image in the user turn,
+            used by handle_question to include the commander's question.
 
     Retries up to _MAX_RETRIES times on 429/500 or JSON parse failure.
     Falls back to Haiku if Sonnet latency exceeds _LATENCY_THRESHOLD_S.
@@ -50,11 +58,13 @@ async def analyze_image(
     """
     global _haiku_mode
 
-    history = list(conversation_history or [])
     image_b64 = base64.standard_b64encode(image_bytes).decode()
 
-    # Build the user message: image + instruction to return JSON
-    user_content: list[dict[str, Any]] = [
+    # Build the user message: optional text + image + JSON instruction
+    user_content: list[dict[str, Any]] = []
+    if user_message:
+        user_content.append({"type": "text", "text": user_message})
+    user_content.extend([
         {
             "type": "image",
             "source": {
@@ -70,9 +80,9 @@ async def analyze_image(
                 "Return ONLY a JSON object matching the specified schema — no markdown, no commentary."
             ),
         },
-    ]
+    ])
 
-    messages = history + [{"role": "user", "content": user_content}]
+    messages = [{"role": "user", "content": user_content}]
 
     delay = 2.0
     for attempt in range(_MAX_RETRIES):

@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from backend.models.schemas import BuildingData
+from ..models.schemas import BuildingData
 
 logger = logging.getLogger(__name__)
 
