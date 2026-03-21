@@ -1,2 +1,4 @@
 .env
-mann/.env
+__pycache__/
+*.pyc
+aegis-env/

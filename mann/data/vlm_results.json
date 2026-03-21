@@ -1,0 +1,2074 @@
+[
+  {
+    "building_id": 926,
+    "name": "Building 926",
+    "centroid_lat": 40.75714894285714,
+    "centroid_lon": -73.9764013,
+    "material": "brick",
+    "levels": "15",
+    "height_m": 53.2,
+    "start_date": "1926",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7571073,
+        -73.9764147
+      ],
+      [
+        40.7570957,
+        -73.9764232
+      ],
+      [
+        40.7571498,
+        -73.9765516
+      ],
+      [
+        40.7573005,
+        -73.9764443
+      ],
+      [
+        40.7572101,
+        -73.9762299
+      ],
+      [
+        40.7570719,
+        -73.9763307
+      ],
+      [
+        40.7571073,
+        -73.9764147
+      ]
+    ],
+    "triage": {
+      "score": 0.582,
+      "color": "ORANGE",
+      "dist_km": 681.157,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 1.0,
+        "occupancy": 0.65,
+        "height": 0.75,
+        "dist_km": 681.157
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680996.5
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "window frame connection",
+          "type": "structural connection",
+          "severity": "MODERATE",
+          "detail": "Large window assembly appears to span significant portion of wall with potential inadequate seismic bracing"
+        },
+        {
+          "location": "exterior wall system",
+          "type": "wall attachment",
+          "severity": "LOW",
+          "detail": "Cannot clearly assess wall-to-structure connections from interior view"
+        }
+      ],
+      "construction_type": "unknown",
+      "risk_level": "MODERATE",
+      "approach_viable": false,
+      "recommended_action": "Obtain exterior facade view - interior perspective insufficient for structural vulnerability assessment",
+      "commander_summary": "Interior view limits assessment capability. Need exterior facade access to properly evaluate Building 926's earthquake vulnerability."
+    }
+  },
+  {
+    "building_id": 724,
+    "name": "VPC Tower",
+    "centroid_lat": 40.75373992222222,
+    "centroid_lon": -73.97987276666667,
+    "material": "stone",
+    "levels": "7",
+    "height_m": 25.5,
+    "start_date": "1924",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7536428,
+        -73.9799056
+      ],
+      [
+        40.7536779,
+        -73.9799891
+      ],
+      [
+        40.7538151,
+        -73.9798894
+      ],
+      [
+        40.753835,
+        -73.9798749
+      ],
+      [
+        40.753802,
+        -73.9797963
+      ],
+      [
+        40.7537662,
+        -73.9798223
+      ],
+      [
+        40.7537641,
+        -73.9798173
+      ],
+      [
+        40.7537134,
+        -73.9798544
+      ],
+      [
+        40.7536428,
+        -73.9799056
+      ]
+    ],
+    "triage": {
+      "score": 0.555,
+      "color": "ORANGE",
+      "dist_km": 680.705,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 0.85,
+        "age": 1.0,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.705
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680544.5
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "interior shelving system",
+          "type": "non-structural hazard",
+          "severity": "CRITICAL",
+          "detail": "Multiple rows of glass bottles on open shelving pose severe falling object hazard during seismic activity"
+        }
+      ],
+      "construction_type": "unknown",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Cannot assess building facade - image shows interior retail space with liquor bottles on shelving",
+      "commander_summary": "Image shows interior of what appears to be a liquor store, not building facade. Unable to assess structural vulnerability from this view."
+    }
+  },
+  {
+    "building_id": 185,
+    "name": "Building 185",
+    "centroid_lat": 40.75327388,
+    "centroid_lon": -73.9907514,
+    "material": "brick",
+    "levels": "5",
+    "height_m": 16.3,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7531684,
+        -73.9907668
+      ],
+      [
+        40.7532177,
+        -73.9908841
+      ],
+      [
+        40.7534321,
+        -73.9907283
+      ],
+      [
+        40.7533828,
+        -73.990611
+      ],
+      [
+        40.7531684,
+        -73.9907668
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 679.909,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 679.909
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 679748.6
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "Main building facade",
+          "type": "unreinforced masonry",
+          "severity": "CRITICAL",
+          "detail": "Multi-story brick construction without visible seismic reinforcement, particularly vulnerable to out-of-plane failure during strong ground motion"
+        },
+        {
+          "location": "Window openings",
+          "type": "structural weakness",
+          "severity": "MODERATE",
+          "detail": "Regular pattern of window openings creates potential weak points in masonry wall, though relatively small window-to-wall ratio provides some structural continuity"
+        },
+        {
+          "location": "Building corners and edges",
+          "type": "masonry connection",
+          "severity": "MODERATE",
+          "detail": "Brick corner connections appear to rely on traditional mortar bonds without visible reinforcement ties"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Evacuate immediately and establish safety perimeter at minimum 1.5x building height distance due to high risk of masonry wall collapse",
+      "commander_summary": "Building 185 shows critical earthquake vulnerability with unreinforced brick construction likely to fail in magnitude 7.2 event. Immediate evacuation required, establish wide safety perimeter."
+    }
+  },
+  {
+    "building_id": 538,
+    "name": "Building 538",
+    "centroid_lat": 40.75266563333333,
+    "centroid_lon": -73.98531918333333,
+    "material": "brick",
+    "levels": "5",
+    "height_m": 20.5,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7525643,
+        -73.9853104
+      ],
+      [
+        40.7526442,
+        -73.9855001
+      ],
+      [
+        40.7527954,
+        -73.9853899
+      ],
+      [
+        40.7527154,
+        -73.9852002
+      ],
+      [
+        40.7527102,
+        -73.9852041
+      ],
+      [
+        40.7525643,
+        -73.9853104
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.255,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.255
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680095.0
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "Upper floor glass curtain wall system",
+          "type": "glazing_failure",
+          "severity": "CRITICAL",
+          "detail": "Extensive glass facade with large window panels likely to experience catastrophic glazing failure and frame distortion under 7.2 magnitude seismic loads"
+        },
+        {
+          "location": "Ground floor open storefront",
+          "type": "soft_story",
+          "severity": "CRITICAL",
+          "detail": "Large open retail space with minimal lateral support creates soft story vulnerability - upper floors likely to experience excessive lateral displacement"
+        },
+        {
+          "location": "Building corner location",
+          "type": "corner_irregularity",
+          "severity": "MODERATE",
+          "detail": "Corner building configuration may experience irregular seismic response and stress concentration at building edges"
+        },
+        {
+          "location": "Projecting signage elements",
+          "type": "non_structural_hazard",
+          "severity": "MODERATE",
+          "detail": "Multiple projecting signs and architectural elements pose falling debris hazard to street level"
+        }
+      ],
+      "construction_type": "mixed",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Establish 100-meter exclusion zone around building perimeter due to high glazing failure risk and soft story collapse potential - approach only with specialized urban search and rescue equipment",
+      "commander_summary": "Building 538 presents critical earthquake vulnerability with extensive glass facade and soft story ground floor likely to fail catastrophically. Recommend immediate area evacuation and no-approach protocol."
+    }
+  },
+  {
+    "building_id": 627,
+    "name": "City Rooms",
+    "centroid_lat": 40.760383822222224,
+    "centroid_lon": -73.98789898333332,
+    "material": "brick",
+    "levels": "5",
+    "height_m": 18.3,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7603932,
+        -73.9878417
+      ],
+      [
+        40.7603813,
+        -73.9878504
+      ],
+      [
+        40.7603697,
+        -73.9878229
+      ],
+      [
+        40.7603816,
+        -73.9878142
+      ],
+      [
+        40.7603456,
+        -73.9877287
+      ],
+      [
+        40.7602855,
+        -73.9877725
+      ],
+      [
+        40.7603215,
+        -73.987858
+      ],
+      [
+        40.7603327,
+        -73.9878499
+      ],
+      [
+        40.7603443,
+        -73.9878774
+      ],
+      [
+        40.7603331,
+        -73.9878855
+      ],
+      [
+        40.7604059,
+        -73.9880589
+      ],
+      [
+        40.7604184,
+        -73.9880881
+      ],
+      [
+        40.7604662,
+        -73.9880533
+      ],
+      [
+        40.7604472,
+        -73.9880082
+      ],
+      [
+        40.7604524,
+        -73.9880044
+      ],
+      [
+        40.7604177,
+        -73.9879221
+      ],
+      [
+        40.7604193,
+        -73.9879038
+      ],
+      [
+        40.7603932,
+        -73.9878417
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.543,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.543
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.8,
+      "epicenter_dist_m": 680382.0
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "red brick building center-right",
+          "type": "unreinforced masonry",
+          "severity": "CRITICAL",
+          "detail": "Multi-story unreinforced brick construction with regular window openings creates weak points vulnerable to seismic lateral forces"
+        },
+        {
+          "location": "red brick building corner",
+          "type": "structural connection",
+          "severity": "MODERATE",
+          "detail": "Corner building configuration may experience amplified seismic forces due to geometric irregularity"
+        },
+        {
+          "location": "ground floor commercial spaces",
+          "type": "soft story",
+          "severity": "MODERATE",
+          "detail": "Large storefront openings at street level reduce lateral resistance compared to upper floors"
+        },
+        {
+          "location": "fire escapes",
+          "type": "appendage",
+          "severity": "LOW",
+          "detail": "External fire escape structures visible on brick facade may detach during strong shaking"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Establish perimeter at minimum 1.5x building height distance from red brick structure; prioritize evacuation of adjacent buildings; coordinate with structural engineer for immediate assessment",
+      "commander_summary": "Red brick building presents critical seismic risk due to unreinforced masonry construction. Recommend immediate area evacuation and structural assessment before any approach operations."
+    }
+  },
+  {
+    "building_id": 883,
+    "name": "Building 883",
+    "centroid_lat": 40.754175575,
+    "centroid_lon": -73.9790640625,
+    "material": "brick",
+    "levels": "5",
+    "height_m": 19.9,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7540587,
+        -73.9791236
+      ],
+      [
+        40.7540921,
+        -73.9792026
+      ],
+      [
+        40.7543082,
+        -73.9790447
+      ],
+      [
+        40.7542737,
+        -73.9789665
+      ],
+      [
+        40.7542513,
+        -73.9789829
+      ],
+      [
+        40.7542231,
+        -73.9790035
+      ],
+      [
+        40.7541388,
+        -73.9790651
+      ],
+      [
+        40.7540587,
+        -73.9791236
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.789,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.789
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680628.1
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "exposed brick wall",
+          "type": "unreinforced masonry",
+          "severity": "CRITICAL",
+          "detail": "Large exposed brick wall section likely unreinforced masonry - highly vulnerable to out-of-plane failure during seismic events"
+        },
+        {
+          "location": "wall-mounted television",
+          "type": "non-structural hazard",
+          "severity": "MODERATE",
+          "detail": "Heavy flat-screen TV mounted on potentially vulnerable masonry wall poses falling hazard"
+        },
+        {
+          "location": "interior partition walls",
+          "type": "structural assessment needed",
+          "severity": "LOW",
+          "detail": "Cannot assess structural adequacy of interior walls from this interior view"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Evacuate building immediately - unreinforced masonry construction presents extreme collapse risk in magnitude 7.2 event",
+      "commander_summary": "Building 883 shows critical unreinforced masonry construction with high collapse potential. Immediate evacuation required - do not approach."
+    }
+  },
+  {
+    "building_id": 890,
+    "name": "Building 890",
+    "centroid_lat": 40.75718916923077,
+    "centroid_lon": -73.97676628461538,
+    "material": "brick",
+    "levels": "7",
+    "height_m": 23.7,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7571604,
+        -73.976756
+      ],
+      [
+        40.7571301,
+        -73.9767789
+      ],
+      [
+        40.7570887,
+        -73.976809
+      ],
+      [
+        40.7571256,
+        -73.9768965
+      ],
+      [
+        40.7571206,
+        -73.9769001
+      ],
+      [
+        40.75714,
+        -73.9769461
+      ],
+      [
+        40.7572535,
+        -73.9768633
+      ],
+      [
+        40.7572004,
+        -73.9767373
+      ],
+      [
+        40.7572479,
+        -73.9767027
+      ],
+      [
+        40.7573714,
+        -73.9766127
+      ],
+      [
+        40.7573344,
+        -73.9765273
+      ],
+      [
+        40.7571258,
+        -73.9766758
+      ],
+      [
+        40.7571604,
+        -73.976756
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 681.134,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 681.134
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680973.1
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "interior view",
+          "type": "assessment_limitation",
+          "severity": "CRITICAL",
+          "detail": "Cannot assess facade vulnerability - image shows interior restaurant space with no exterior structural elements visible"
+        }
+      ],
+      "construction_type": "unknown",
+      "risk_level": "LOW",
+      "approach_viable": false,
+      "recommended_action": "Obtain exterior facade imagery of Building 890 to conduct proper structural vulnerability assessment",
+      "commander_summary": "Unable to assess facade - image shows restaurant interior only. Need exterior building view for structural evaluation."
+    }
+  },
+  {
+    "building_id": 891,
+    "name": "Building 891",
+    "centroid_lat": 40.75718032857143,
+    "centroid_lon": -73.97656867142857,
+    "material": "brick",
+    "levels": "7",
+    "height_m": 23.6,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7571498,
+        -73.9765516
+      ],
+      [
+        40.7570919,
+        -73.9765928
+      ],
+      [
+        40.7571101,
+        -73.9766373
+      ],
+      [
+        40.7571258,
+        -73.9766758
+      ],
+      [
+        40.7573344,
+        -73.9765273
+      ],
+      [
+        40.7573005,
+        -73.9764443
+      ],
+      [
+        40.7571498,
+        -73.9765516
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 681.147,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 681.147
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680986.6
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "corner window assembly",
+          "type": "glazing system",
+          "severity": "MODERATE",
+          "detail": "Large corner windows with extensive glazing create potential failure points where glass panels meet structural elements"
+        },
+        {
+          "location": "window frame connections",
+          "type": "connection detail",
+          "severity": "MODERATE",
+          "detail": "Multiple window openings in what appears to be masonry or concrete construction - connections between frame and structure are critical seismic vulnerability points"
+        },
+        {
+          "location": "interior wall-window interface",
+          "type": "structural connection",
+          "severity": "LOW",
+          "detail": "Interior finishing appears intact but connection between window assembly and structural walls needs verification"
+        }
+      ],
+      "construction_type": "mixed",
+      "risk_level": "MODERATE",
+      "approach_viable": true,
+      "recommended_action": "Inspect window frame anchoring systems and glazing connections from exterior; verify structural integrity of corner window assembly before entry",
+      "commander_summary": "Building 891 shows moderate seismic risk with large corner windows as primary concern. Structure appears stable for approach but recommend exterior inspection of window connections first."
+    }
+  },
+  {
+    "building_id": 892,
+    "name": "Building 892",
+    "centroid_lat": 40.75470496875,
+    "centroid_lon": -73.979154475,
+    "material": "brick",
+    "levels": "6",
+    "height_m": 23.6,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7548102,
+        -73.979033
+      ],
+      [
+        40.7547468,
+        -73.9790788
+      ],
+      [
+        40.7547111,
+        -73.9791047
+      ],
+      [
+        40.7546338,
+        -73.9791613
+      ],
+      [
+        40.754613,
+        -73.9791764
+      ],
+      [
+        40.7545936,
+        -73.9791902
+      ],
+      [
+        40.7545694,
+        -73.9792078
+      ],
+      [
+        40.7545999,
+        -73.9792807
+      ],
+      [
+        40.7546351,
+        -73.979255
+      ],
+      [
+        40.7546468,
+        -73.9792466
+      ],
+      [
+        40.7546792,
+        -73.9792232
+      ],
+      [
+        40.7547624,
+        -73.979163
+      ],
+      [
+        40.7547992,
+        -73.9791364
+      ],
+      [
+        40.7548409,
+        -73.9791063
+      ],
+      [
+        40.7548279,
+        -73.9790752
+      ],
+      [
+        40.7548102,
+        -73.979033
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.814,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.814
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680653.8
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "ground floor storefront",
+          "type": "large glazed opening",
+          "severity": "MODERATE",
+          "detail": "extensive glass frontage with minimal visible structural support creates potential weak point in building's lateral resistance"
+        },
+        {
+          "location": "upper facade",
+          "type": "unreinforced masonry",
+          "severity": "MODERATE",
+          "detail": "brick construction visible on adjacent buildings suggests similar unreinforced masonry typical of older urban construction"
+        },
+        {
+          "location": "street level canopy",
+          "type": "projecting element",
+          "severity": "LOW",
+          "detail": "small storefront awning appears lightweight but could pose falling hazard"
+        }
+      ],
+      "construction_type": "mixed",
+      "risk_level": "MODERATE",
+      "approach_viable": true,
+      "recommended_action": "Establish safe zone 15 meters from building facade, particularly avoiding area directly in front of large storefront windows",
+      "commander_summary": "Building 892 shows moderate seismic vulnerability due to large ground-floor glazing and probable unreinforced masonry construction. Safe approach possible with standoff distance from storefront."
+    }
+  },
+  {
+    "building_id": 1139,
+    "name": "Building 1139",
+    "centroid_lat": 40.758165536363634,
+    "centroid_lon": -73.98851711818182,
+    "material": "brick",
+    "levels": "6",
+    "height_m": 23.3,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7582054,
+        -73.9884784
+      ],
+      [
+        40.758268,
+        -73.988433
+      ],
+      [
+        40.7581948,
+        -73.9882588
+      ],
+      [
+        40.7581922,
+        -73.9882607
+      ],
+      [
+        40.7579513,
+        -73.9884358
+      ],
+      [
+        40.7579977,
+        -73.9885461
+      ],
+      [
+        40.7581519,
+        -73.9889133
+      ],
+      [
+        40.7582752,
+        -73.9888237
+      ],
+      [
+        40.7581607,
+        -73.988551
+      ],
+      [
+        40.7582183,
+        -73.9885091
+      ],
+      [
+        40.7582054,
+        -73.9884784
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.364,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.364
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.8,
+      "epicenter_dist_m": 680203.5
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "second floor mezzanine",
+          "type": "structural_support",
+          "severity": "MODERATE",
+          "detail": "Open mezzanine level with minimal visible vertical support columns may be vulnerable to lateral forces"
+        },
+        {
+          "location": "large glazed openings",
+          "type": "non_structural",
+          "severity": "MODERATE",
+          "detail": "Extensive glass surfaces at ground level likely to fail during strong shaking, creating hazard zone"
+        },
+        {
+          "location": "ground floor columns",
+          "type": "structural_support",
+          "severity": "LOW",
+          "detail": "Visible concrete columns appear adequately spaced but cannot assess reinforcement details"
+        },
+        {
+          "location": "mezzanine railings",
+          "type": "non_structural",
+          "severity": "LOW",
+          "detail": "Metal railings may detach or deform during seismic motion"
+        }
+      ],
+      "construction_type": "concrete",
+      "risk_level": "MODERATE",
+      "approach_viable": true,
+      "recommended_action": "Approach from sides rather than directly facing large glass areas; establish safe zone minimum 1.5x building height away from glazed facade",
+      "commander_summary": "Building 1139 shows moderate vulnerability with open mezzanine design and extensive ground-level glazing. Approach viable but avoid glass fall zones."
+    }
+  },
+  {
+    "building_id": 1275,
+    "name": "Building 1275",
+    "centroid_lat": 40.757011275,
+    "centroid_lon": -73.9799806625,
+    "material": "brick",
+    "levels": "7",
+    "height_m": 22.9,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7569013,
+        -73.9800395
+      ],
+      [
+        40.7569291,
+        -73.9801056
+      ],
+      [
+        40.7571035,
+        -73.9799781
+      ],
+      [
+        40.7571271,
+        -73.9799608
+      ],
+      [
+        40.7571435,
+        -73.9799488
+      ],
+      [
+        40.7571157,
+        -73.9798826
+      ],
+      [
+        40.7570973,
+        -73.9798961
+      ],
+      [
+        40.7570799,
+        -73.9799089
+      ],
+      [
+        40.7570582,
+        -73.9799247
+      ],
+      [
+        40.7570471,
+        -73.9799328
+      ],
+      [
+        40.7569796,
+        -73.9799822
+      ],
+      [
+        40.7569384,
+        -73.9800124
+      ],
+      [
+        40.7569289,
+        -73.9800193
+      ],
+      [
+        40.7569195,
+        -73.9800262
+      ],
+      [
+        40.75691,
+        -73.9800331
+      ],
+      [
+        40.7569013,
+        -73.9800395
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.896,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.896
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680735.5
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "interior view",
+          "type": "assessment limitation",
+          "severity": "CRITICAL",
+          "detail": "Cannot assess facade vulnerability - image shows interior space with mirror reflection, no exterior structural elements visible"
+        }
+      ],
+      "construction_type": "unknown",
+      "risk_level": "LOW",
+      "approach_viable": false,
+      "recommended_action": "Reposition to obtain clear exterior facade view of Building 1275 epicenter-facing side",
+      "commander_summary": "No facade assessment possible - interior view only. Need exterior positioning for structural vulnerability analysis."
+    }
+  },
+  {
+    "building_id": 1296,
+    "name": "Building 1296",
+    "centroid_lat": 40.7542991375,
+    "centroid_lon": -73.98132678125,
+    "material": "brick",
+    "levels": "7",
+    "height_m": 32.6,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.754074,
+        -73.9811754
+      ],
+      [
+        40.7541021,
+        -73.9812397
+      ],
+      [
+        40.754153,
+        -73.9813619
+      ],
+      [
+        40.7541825,
+        -73.9814321
+      ],
+      [
+        40.7542416,
+        -73.9815791
+      ],
+      [
+        40.7543185,
+        -73.9815244
+      ],
+      [
+        40.7543977,
+        -73.9814663
+      ],
+      [
+        40.7544119,
+        -73.9814559
+      ],
+      [
+        40.7544339,
+        -73.9814402
+      ],
+      [
+        40.7544569,
+        -73.9814234
+      ],
+      [
+        40.7544788,
+        -73.9814078
+      ],
+      [
+        40.7544434,
+        -73.9813232
+      ],
+      [
+        40.7543898,
+        -73.9811952
+      ],
+      [
+        40.7543181,
+        -73.9810239
+      ],
+      [
+        40.75431,
+        -73.9810046
+      ],
+      [
+        40.754074,
+        -73.9811754
+      ]
+    ],
+    "triage": {
+      "score": 0.547,
+      "color": "YELLOW",
+      "dist_km": 680.636,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.85,
+        "dist_km": 680.636
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680475.9
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "suspended ceiling system",
+          "type": "non-structural",
+          "severity": "CRITICAL",
+          "detail": "Large grid ceiling tiles and suspended framework pose falling hazard during seismic activity"
+        },
+        {
+          "location": "interior glass partitions",
+          "type": "glazing",
+          "severity": "MODERATE",
+          "detail": "Multiple glass partition walls visible that could shatter and create debris field"
+        },
+        {
+          "location": "overhead lighting fixtures",
+          "type": "non-structural",
+          "severity": "MODERATE",
+          "detail": "Track lighting and suspended fixtures lack visible seismic bracing"
+        },
+        {
+          "location": "structural walls",
+          "type": "construction",
+          "severity": "LOW",
+          "detail": "Cannot clearly assess primary structural system from interior view"
+        }
+      ],
+      "construction_type": "unknown",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Do not enter - this appears to be an interior space, not a building facade. Reassess target location and obtain exterior view of Building 1296's epicenter-facing facade",
+      "commander_summary": "This is an interior space, not the requested building facade. Cannot assess structural earthquake vulnerability from indoor venue view."
+    }
+  },
+  {
+    "building_id": 921,
+    "name": "Building 921",
+    "centroid_lat": 40.75785046153846,
+    "centroid_lon": -73.97613787692308,
+    "material": "stone",
+    "levels": "12",
+    "height_m": 52.8,
+    "start_date": "1915",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7576924,
+        -73.9761578
+      ],
+      [
+        40.7577249,
+        -73.9762351
+      ],
+      [
+        40.7577656,
+        -73.9763324
+      ],
+      [
+        40.7578579,
+        -73.976265
+      ],
+      [
+        40.7579315,
+        -73.9762113
+      ],
+      [
+        40.758005,
+        -73.9761577
+      ],
+      [
+        40.7580056,
+        -73.9761571
+      ],
+      [
+        40.7579318,
+        -73.975983
+      ],
+      [
+        40.7579106,
+        -73.9759985
+      ],
+      [
+        40.7578882,
+        -73.9760148
+      ],
+      [
+        40.7578442,
+        -73.976047
+      ],
+      [
+        40.7578059,
+        -73.9760749
+      ],
+      [
+        40.7576924,
+        -73.9761578
+      ]
+    ],
+    "triage": {
+      "score": 0.545,
+      "color": "YELLOW",
+      "dist_km": 681.218,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 0.85,
+        "age": 1.0,
+        "occupancy": 0.65,
+        "height": 0.75,
+        "dist_km": 681.218
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 681057.6
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "large rose window - west wall",
+          "type": "unreinforced masonry opening",
+          "severity": "CRITICAL",
+          "detail": "Large circular stained glass window creates significant structural weakness in masonry wall with minimal visible reinforcement around opening"
+        },
+        {
+          "location": "tall nave windows",
+          "type": "unreinforced masonry openings",
+          "severity": "MODERATE",
+          "detail": "Multiple tall arched windows create vertical weaknesses in stone walls, though smaller than rose window"
+        },
+        {
+          "location": "stone columns and arches",
+          "type": "unreinforced masonry",
+          "severity": "MODERATE",
+          "detail": "Gothic stone columns supporting pointed arches lack visible seismic reinforcement, vulnerable to lateral forces"
+        },
+        {
+          "location": "upper clerestory level",
+          "type": "height vulnerability",
+          "severity": "MODERATE",
+          "detail": "High stone walls with large window openings present amplified seismic forces at elevation"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Establish safe perimeter at minimum 1.5x building height - large rose window and unreinforced masonry construction present extreme collapse hazard",
+      "commander_summary": "Gothic cathedral with critical structural vulnerabilities - large rose window and unreinforced stone construction make this extremely dangerous. Recommend wide perimeter and remote assessment only."
+    }
+  },
+  {
+    "building_id": 1,
+    "name": "Empire State Building",
+    "centroid_lat": 40.7485240875,
+    "centroid_lon": -73.9860376375,
+    "material": "unknown",
+    "levels": "102",
+    "height_m": 443.2,
+    "start_date": "1931",
+    "building_type": "office",
+    "footprint": [
+      [
+        40.748491,
+        -73.9865012
+      ],
+      [
+        40.7479255,
+        -73.9851602
+      ],
+      [
+        40.7483931,
+        -73.9848166
+      ],
+      [
+        40.7489585,
+        -73.9861574
+      ],
+      [
+        40.7487301,
+        -73.9863252
+      ],
+      [
+        40.748689,
+        -73.9863554
+      ],
+      [
+        40.7485145,
+        -73.9864839
+      ],
+      [
+        40.748491,
+        -73.9865012
+      ]
+    ],
+    "triage": {
+      "score": 0.542,
+      "color": "YELLOW",
+      "dist_km": 679.953,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 0.75,
+        "age": 1.0,
+        "occupancy": 0.8,
+        "height": 0.75,
+        "dist_km": 679.953
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 679792.9
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "entire view",
+          "type": "misidentification",
+          "severity": "CRITICAL",
+          "detail": "This appears to be an interior retail space, not the Empire State Building facade - cannot assess building structural elements from this indoor commercial view"
+        }
+      ],
+      "construction_type": "unknown",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Reposition to exterior view of actual Empire State Building facade for structural assessment",
+      "commander_summary": "Cannot assess - this is an interior retail space, not the Empire State Building exterior facade. Need exterior building view for vulnerability analysis."
+    }
+  },
+  {
+    "building_id": 113,
+    "name": "Building 113",
+    "centroid_lat": 40.74872175,
+    "centroid_lon": -73.98782065909091,
+    "material": "unknown",
+    "levels": "12",
+    "height_m": 45.9,
+    "start_date": "1912",
+    "building_type": "office",
+    "footprint": [
+      [
+        40.748668,
+        -73.9876795
+      ],
+      [
+        40.7486496,
+        -73.9876359
+      ],
+      [
+        40.7485722,
+        -73.9876923
+      ],
+      [
+        40.7485537,
+        -73.9876486
+      ],
+      [
+        40.7485074,
+        -73.9876824
+      ],
+      [
+        40.7485682,
+        -73.987986
+      ],
+      [
+        40.7485878,
+        -73.9879824
+      ],
+      [
+        40.7486057,
+        -73.9879791
+      ],
+      [
+        40.7486272,
+        -73.9879752
+      ],
+      [
+        40.7487014,
+        -73.9879617
+      ],
+      [
+        40.74879,
+        -73.9879455
+      ],
+      [
+        40.7488584,
+        -73.987933
+      ],
+      [
+        40.7488717,
+        -73.9879289
+      ],
+      [
+        40.7488779,
+        -73.9879236
+      ],
+      [
+        40.7488804,
+        -73.9879163
+      ],
+      [
+        40.7488799,
+        -73.987906
+      ],
+      [
+        40.7488729,
+        -73.9878877
+      ],
+      [
+        40.7488258,
+        -73.9877757
+      ],
+      [
+        40.7487874,
+        -73.9876845
+      ],
+      [
+        40.7487672,
+        -73.9876366
+      ],
+      [
+        40.7487577,
+        -73.9876141
+      ],
+      [
+        40.748668,
+        -73.9876795
+      ]
+    ],
+    "triage": {
+      "score": 0.542,
+      "color": "YELLOW",
+      "dist_km": 679.839,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 0.75,
+        "age": 1.0,
+        "occupancy": 0.8,
+        "height": 0.75,
+        "dist_km": 679.839
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 679679.0
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "upper facade masonry",
+          "type": "unreinforced masonry",
+          "severity": "CRITICAL",
+          "detail": "Multi-story unreinforced brick/stone masonry construction with large window openings creating structural weakness points"
+        },
+        {
+          "location": "ground level storefront",
+          "type": "large glazed openings",
+          "severity": "MODERATE",
+          "detail": "Extensive glass storefront windows with minimal visible structural support between openings"
+        },
+        {
+          "location": "building corners",
+          "type": "masonry joints",
+          "severity": "MODERATE",
+          "detail": "Visible mortar joints between masonry units that may be vulnerable to seismic lateral forces"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Establish 200m perimeter around building - unreinforced masonry presents extreme falling debris hazard in 7.2 magnitude event",
+      "commander_summary": "Building 113 shows critical unreinforced masonry construction with large window openings. Recommend immediate area evacuation due to high debris fall risk from epicenter-facing facade."
+    }
+  },
+  {
+    "building_id": 570,
+    "name": "Herald Square Building",
+    "centroid_lat": 40.7509917,
+    "centroid_lon": -73.9873609888889,
+    "material": "unknown",
+    "levels": "24",
+    "height_m": 99.67,
+    "start_date": "1930",
+    "building_type": "office",
+    "footprint": [
+      [
+        40.7512084,
+        -73.9873797
+      ],
+      [
+        40.7511041,
+        -73.9871263
+      ],
+      [
+        40.7510742,
+        -73.9870551
+      ],
+      [
+        40.7510188,
+        -73.9870955
+      ],
+      [
+        40.750842,
+        -73.9872259
+      ],
+      [
+        40.7507886,
+        -73.9872653
+      ],
+      [
+        40.7508043,
+        -73.9873011
+      ],
+      [
+        40.7508092,
+        -73.9873129
+      ],
+      [
+        40.7508187,
+        -73.9873353
+      ],
+      [
+        40.7508809,
+        -73.987481
+      ],
+      [
+        40.7508883,
+        -73.9874985
+      ],
+      [
+        40.7508921,
+        -73.9875072
+      ],
+      [
+        40.7509086,
+        -73.9875472
+      ],
+      [
+        40.7509761,
+        -73.9875353
+      ],
+      [
+        40.7511647,
+        -73.9875028
+      ],
+      [
+        40.7512236,
+        -73.9874927
+      ],
+      [
+        40.7512396,
+        -73.9874563
+      ],
+      [
+        40.7512084,
+        -73.9873797
+      ]
+    ],
+    "triage": {
+      "score": 0.542,
+      "color": "YELLOW",
+      "dist_km": 680.01,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 0.75,
+        "age": 1.0,
+        "occupancy": 0.8,
+        "height": 0.75,
+        "dist_km": 680.01
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 679849.2
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "upper facade signage",
+          "type": "heavy mounted signs",
+          "severity": "MODERATE",
+          "detail": "Multiple large commercial signs mounted to building face, including illuminated 'Pax' sign, likely to detach and fall during strong shaking"
+        },
+        {
+          "location": "street level storefront",
+          "type": "large glazing",
+          "severity": "MODERATE",
+          "detail": "Extensive glass windows at pedestrian level likely to shatter and create hazard zone"
+        },
+        {
+          "location": "building structure",
+          "type": "construction assessment",
+          "severity": "LOW",
+          "detail": "Cannot clearly assess structural elements due to night lighting and signage obstruction"
+        }
+      ],
+      "construction_type": "mixed",
+      "risk_level": "MODERATE",
+      "approach_viable": true,
+      "recommended_action": "Establish 15-meter perimeter from building face to account for falling signage debris, prioritize evacuation of pedestrians from storefront areas",
+      "commander_summary": "Mixed-use building with multiple heavy commercial signs likely to fall during magnitude 7.2 event. Recommend keeping personnel clear of facade due to falling debris hazard."
+    }
+  },
+  {
+    "building_id": 38,
+    "name": "Postum Building",
+    "centroid_lat": 40.75520517142858,
+    "centroid_lon": -73.97592531428572,
+    "material": "brick",
+    "levels": "2",
+    "height_m": 12.0,
+    "start_date": "1924",
+    "building_type": "commercial",
+    "footprint": [
+      [
+        40.7555059,
+        -73.9760058
+      ],
+      [
+        40.7553385,
+        -73.9756042
+      ],
+      [
+        40.755179,
+        -73.9757201
+      ],
+      [
+        40.7550195,
+        -73.975836
+      ],
+      [
+        40.75486,
+        -73.9759518
+      ],
+      [
+        40.7550274,
+        -73.9763535
+      ],
+      [
+        40.7555059,
+        -73.9760058
+      ]
+    ],
+    "triage": {
+      "score": 0.537,
+      "color": "YELLOW",
+      "dist_km": 681.073,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 1.0,
+        "occupancy": 0.65,
+        "height": 0.3,
+        "dist_km": 681.073
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680912.1
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "Main concourse ceiling",
+          "type": "unreinforced masonry vault",
+          "severity": "CRITICAL",
+          "detail": "Large span barrel vault or groin vault ceiling system over crowded public space - high collapse risk for unreinforced masonry construction"
+        },
+        {
+          "location": "Upper level clerestory windows",
+          "type": "large glazed openings",
+          "severity": "MODERATE",
+          "detail": "Extensive window wall system at upper level may compromise structural integrity and create falling glass hazard"
+        },
+        {
+          "location": "Grand staircase structure",
+          "type": "masonry support system",
+          "severity": "MODERATE",
+          "detail": "Large stone staircase appears to rely on masonry construction which may be vulnerable to lateral forces"
+        },
+        {
+          "location": "Interior columns",
+          "type": "load-bearing masonry",
+          "severity": "MODERATE",
+          "detail": "Visible classical columns supporting upper structure - potential failure points if unreinforced masonry"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Immediate evacuation of main concourse required - establish perimeter and use alternate entrances only",
+      "commander_summary": "Grand Central-style terminal with critical overhead masonry vault risk. Main concourse unsafe - evacuate and seal immediately."
+    }
+  },
+  {
+    "building_id": 459,
+    "name": "Building 459",
+    "centroid_lat": 40.75214471428571,
+    "centroid_lon": -73.98513108571429,
+    "material": "brick",
+    "levels": "12",
+    "height_m": 49.6,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7520483,
+        -73.985109
+      ],
+      [
+        40.7521179,
+        -73.9852739
+      ],
+      [
+        40.7521281,
+        -73.9852664
+      ],
+      [
+        40.7523376,
+        -73.9851136
+      ],
+      [
+        40.7522681,
+        -73.9849487
+      ],
+      [
+        40.7520647,
+        -73.985097
+      ],
+      [
+        40.7520483,
+        -73.985109
+      ]
+    ],
+    "triage": {
+      "score": 0.537,
+      "color": "YELLOW",
+      "dist_km": 680.237,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.75,
+        "dist_km": 680.237
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 680076.6
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "Upper facade masonry walls",
+          "type": "unreinforced masonry",
+          "severity": "CRITICAL",
+          "detail": "Brick construction with large window openings creates weak points prone to shear failure and potential collapse"
+        },
+        {
+          "location": "Ground floor storefront",
+          "type": "large glazed openings",
+          "severity": "MODERATE",
+          "detail": "Extensive glass frontage with minimal structural support between openings reduces lateral resistance"
+        },
+        {
+          "location": "Building-to-building interface",
+          "type": "differential movement",
+          "severity": "MODERATE",
+          "detail": "Adjacent buildings of varying heights and construction may create pounding effects during seismic motion"
+        },
+        {
+          "location": "Fire escape structure",
+          "type": "attached metalwork",
+          "severity": "LOW",
+          "detail": "External fire escape attachments visible on adjacent building may create falling hazard"
+        }
+      ],
+      "construction_type": "masonry",
+      "risk_level": "CRITICAL",
+      "approach_viable": false,
+      "recommended_action": "Establish wide perimeter and approach from adjacent street - unreinforced masonry with large openings presents high collapse risk",
+      "commander_summary": "Building 459 shows critical unreinforced masonry construction with large window openings likely to fail in magnitude 7.2 event. Recommend wide standoff distance and alternate approach route."
+    }
+  },
+  {
+    "building_id": 556,
+    "name": "Building 556",
+    "centroid_lat": 40.752191440000004,
+    "centroid_lon": -73.98692328,
+    "material": "brick",
+    "levels": "12",
+    "height_m": 45.5,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7522944,
+        -73.9869974
+      ],
+      [
+        40.7521575,
+        -73.9866766
+      ],
+      [
+        40.7520909,
+        -73.986726
+      ],
+      [
+        40.7520036,
+        -73.9867909
+      ],
+      [
+        40.7519882,
+        -73.9868023
+      ],
+      [
+        40.7519742,
+        -73.9868127
+      ],
+      [
+        40.752179,
+        -73.9873007
+      ],
+      [
+        40.752529,
+        -73.9872117
+      ],
+      [
+        40.7524032,
+        -73.9869171
+      ],
+      [
+        40.7522944,
+        -73.9869974
+      ]
+    ],
+    "triage": {
+      "score": 0.537,
+      "color": "YELLOW",
+      "dist_km": 680.113,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.75,
+        "dist_km": 680.113
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 679953.0
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "Ground floor storefront glazing",
+          "type": "structural_glazing",
+          "severity": "MODERATE",
+          "detail": "Large continuous glass storefront panels with minimal visible structural framing may be vulnerable to lateral forces"
+        },
+        {
+          "location": "Upper floor window bands",
+          "type": "window_system",
+          "severity": "LOW",
+          "detail": "Regularly spaced window openings appear properly framed within masonry structure"
+        },
+        {
+          "location": "Building interface",
+          "type": "structural_connection",
+          "severity": "LOW",
+          "detail": "Connection between different building sections visible but cannot assess structural adequacy from this angle"
+        }
+      ],
+      "construction_type": "mixed",
+      "risk_level": "MODERATE",
+      "approach_viable": true,
+      "recommended_action": "Inspect ground floor storefront glazing connections and framing for seismic adequacy; examine building junction details from interior if possible",
+      "commander_summary": "Mixed construction building with moderate risk from large ground floor glazing system. Street approach is clear and viable for detailed assessment."
+    }
+  },
+  {
+    "building_id": 562,
+    "name": "Building 562",
+    "centroid_lat": 40.75225931111111,
+    "centroid_lon": -73.9864813,
+    "material": "brick",
+    "levels": "9",
+    "height_m": 32.0,
+    "start_date": "",
+    "building_type": "yes",
+    "footprint": [
+      [
+        40.7521504,
+        -73.9865122
+      ],
+      [
+        40.752183,
+        -73.9865887
+      ],
+      [
+        40.7522053,
+        -73.9866411
+      ],
+      [
+        40.7524429,
+        -73.9864659
+      ],
+      [
+        40.7523892,
+        -73.9863383
+      ],
+      [
+        40.7523316,
+        -73.9863802
+      ],
+      [
+        40.75227,
+        -73.9864251
+      ],
+      [
+        40.752211,
+        -73.986468
+      ],
+      [
+        40.7521504,
+        -73.9865122
+      ]
+    ],
+    "triage": {
+      "score": 0.537,
+      "color": "YELLOW",
+      "dist_km": 680.149,
+      "score_breakdown": {
+        "shaking": 0.028,
+        "material": 1.0,
+        "age": 0.7,
+        "occupancy": 0.65,
+        "height": 0.75,
+        "dist_km": 680.149
+      }
+    },
+    "streetview": {
+      "heading": 241,
+      "direction_label": "primary (epicenter-facing)",
+      "epicenter_bearing_deg": 236.9,
+      "epicenter_dist_m": 679988.3
+    },
+    "vlm_analysis": {
+      "findings": [
+        {
+          "location": "Ground floor storefront",
+          "type": "Large glazed openings",
+          "severity": "MODERATE",
+          "detail": "Extensive ground-level glass facades create potential weak points in lateral load resistance"
+        },
+        {
+          "location": "Upper floor windows",
+          "type": "Regular window pattern",
+          "severity": "LOW",
+          "detail": "Appears to have consistent window spacing and framing typical of modern construction"
+        },
+        {
+          "location": "Building corners",
+          "type": "Structural continuity",
+          "severity": "LOW",
+          "detail": "Corner conditions appear intact with no visible separation or movement"
+        }
+      ],
+      "construction_type": "mixed",
+      "risk_level": "MODERATE",
+      "approach_viable": true,
+      "recommended_action": "Monitor ground floor storefront glazing for any signs of frame distortion or glass cracking during aftershocks",
+      "commander_summary": "Building 562 shows typical modern construction with moderate risk from extensive ground floor glazing. Structure appears stable for approach operations."
+    }
+  }
+]

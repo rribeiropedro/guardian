@@ -1,6 +1,12 @@
 from functools import lru_cache
+from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+# Load backend/.env before any code reads os.environ (does not override existing env vars).
+_BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(_BACKEND_DIR / ".env")
 
 
 class Settings(BaseModel):

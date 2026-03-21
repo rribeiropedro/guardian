@@ -6,3 +6,4 @@ httpx
 pillow
 redis
 anthropic
+python-dotenv
