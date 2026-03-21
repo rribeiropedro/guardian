@@ -1,56 +1,129 @@
-import osmnx as ox
-import json, os
+import asyncio
+import httpx
+import json
+import os
+import math
 
-# ── TESTING: small core area ~400m radius around Squires/McBryde/Pylons
-# Switch to VT_BBOX_FULL when ready for the real demo
-VT_BBOX_TEST = (37.2300, 10.1275, -80.4205, -80.4220)  # ~3-5 buildings, just Squires block
-VT_BBOX_FULL = (37.2310, 37.2180, -80.4130, -80.4280)  # full campus ~280 buildings
+# ── Config ────────────────────────────────────────────────────────────────────
+# Manhattan midtown center point + radius
+CENTER_LAT = 40.7549
+CENTER_LNG = -73.9840
+RADIUS_M   = 800       # ~800m radius around Times Square area → ~50+ buildings
 
-VT_BBOX = VT_BBOX_TEST  # ← swap to VT_BBOX_FULL when done testing
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
+# ── Overpass fetch ────────────────────────────────────────────────────────────
+async def fetch_buildings_overpass(lat, lng, radius_m):
+    query = f"""
+[out:json][timeout:30];
+(
+  way["building"](around:{radius_m},{lat},{lng});
+);
+out body geom;
+""".strip()
 
-def fetch_buildings():
-    """Pull all buildings from OpenStreetMap for VT campus."""
-    tags = {'building': True}
-    gdf = ox.features_from_bbox(
-        bbox=VT_BBOX,
-        tags=tags
-    )
-    # Keep only relevant columns
-    keep = ['name','building','building:material','building:levels',
-            'amenity','start_date','geometry']
-    cols = [c for c in keep if c in gdf.columns]
-    gdf = gdf[cols].copy()
-    # Convert to plain GeoJSON
-    gdf = gdf[gdf.geometry.type.isin(['Polygon','MultiPolygon'])]
-    gdf = gdf.reset_index(drop=True)
-    gdf['building_id'] = gdf.index
-    # Compute centroid for distance calculations
-    gdf['centroid_lat'] = gdf.geometry.centroid.y
-    gdf['centroid_lon'] = gdf.geometry.centroid.x
-    return gdf
+    delay = 2.0
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for attempt in range(3):
+            try:
+                r = await client.post(OVERPASS_URL, data={"data": query})
+                if r.status_code == 429:
+                    await asyncio.sleep(delay); delay *= 2; continue
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                if attempt == 2: raise
+                await asyncio.sleep(delay); delay *= 2
+    return {}
 
+# ── Centroid ──────────────────────────────────────────────────────────────────
+def centroid(coords):
+    lats = [c[0] for c in coords]
+    lngs = [c[1] for c in coords]
+    return sum(lats)/len(lats), sum(lngs)/len(lngs)
 
-def fetch_road_graph():
-    """Pull the drivable road network for A* routing."""
-    G = ox.graph_from_bbox(
-        bbox=VT_BBOX,
-        network_type='drive'
-    )
-    return G
+# ── Parse element ─────────────────────────────────────────────────────────────
+def parse_element(el, index):
+    tags     = el.get("tags", {})
+    geometry = el.get("geometry", [])
+    if not geometry:
+        return None
 
+    footprint = [[pt["lat"], pt["lon"]] for pt in geometry if "lat" in pt]
+    if len(footprint) < 3:
+        return None
 
-if __name__ == '__main__':
-    os.makedirs('data', exist_ok=True)
+    lat, lng = centroid(footprint)
 
-    print(f'Using {"TEST (small)" if VT_BBOX == VT_BBOX_TEST else "FULL campus"} bounding box')
+    # Name — fall back to "Building N"
+    name = (tags.get("name")
+            or tags.get("addr:housename")
+            or f"Building {index}")
 
-    print('Fetching buildings...')
-    buildings = fetch_buildings()
-    buildings.to_file('data/vt_buildings.geojson', driver='GeoJSON')
-    print(f'Saved {len(buildings)} buildings to data/vt_buildings.geojson')
+    # Levels
+    raw_levels = tags.get("building:levels") or tags.get("levels")
+    try:    levels = int(raw_levels) if raw_levels else 2
+    except: levels = 2
 
-    print('Fetching road network...')
-    G = fetch_road_graph()
-    ox.save_graphml(G, 'data/vt_roads.graphml')
-    print(f'Saved road graph: {len(G.nodes)} nodes, {len(G.edges)} edges')
+    # Height
+    raw_h = tags.get("height") or tags.get("building:height")
+    try:    height_m = float(raw_h)
+    except: height_m = levels * 3.0
+
+    # Material
+    material = (tags.get("building:material")
+                or tags.get("material")
+                or "unknown").lower()
+
+    # Building type
+    building_type = (tags.get("building")
+                     or tags.get("amenity")
+                     or tags.get("landuse")
+                     or "yes")
+
+    # Start date
+    start_date = tags.get("start_date") or tags.get("construction_date") or ""
+
+    return {
+        "building_id":   index,
+        "name":          name,
+        "building_type": building_type,
+        "material":      material,
+        "levels":        str(levels),
+        "height_m":      height_m,
+        "start_date":    start_date,
+        "centroid_lat":  lat,
+        "centroid_lon":  lng,
+        "footprint":     footprint,
+    }
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+async def main():
+    os.makedirs("data", exist_ok=True)
+    print(f"Fetching buildings within {RADIUS_M}m of ({CENTER_LAT}, {CENTER_LNG})...")
+
+    data = await fetch_buildings_overpass(CENTER_LAT, CENTER_LNG, RADIUS_M)
+    elements = data.get("elements", [])
+    print(f"Raw elements returned: {len(elements)}")
+
+    buildings = []
+    unnamed_count = 0
+    for i, el in enumerate(elements):
+        parsed = parse_element(el, i + 1)
+        if parsed:
+            if parsed["name"].startswith("Building "):
+                unnamed_count += 1
+            buildings.append(parsed)
+
+    print(f"Parsed: {len(buildings)} buildings ({unnamed_count} unnamed → auto-named)")
+
+    with open("data/vt_buildings.json", "w") as f:
+        json.dump(buildings, f, indent=2)
+
+    print(f"Saved to data/vt_buildings.json")
+    print("\nSample:")
+    for b in buildings[:5]:
+        print(f"  {b['name']} | {b['building_type']} | {b['material']} | "
+              f"levels={b['levels']} | ({b['centroid_lat']:.4f}, {b['centroid_lon']:.4f})")
+
+asyncio.run(main())
