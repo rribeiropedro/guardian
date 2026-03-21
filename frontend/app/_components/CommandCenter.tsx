@@ -22,7 +22,7 @@ export default function CommandCenter() {
   const [buildings, setBuildings] = useState<Building[]>([])
   const [scouts, setScouts] = useState<Map<string, Scout>>(new Map())
   const [activeScoutId, setActiveScoutId] = useState<string | null>(null)
-  const [activeBuildingId, setActiveBuildingId] = useState<string | null>(null)
+  const [activeBuilding, setActiveBuilding] = useState<Building | null>(null)
   const [scenarioRunning, setScenarioRunning] = useState(false)
   const [route, setRoute] = useState<Waypoint[] | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
@@ -119,7 +119,7 @@ export default function CommandCenter() {
       setBuildings([])
       setScouts(new Map())
       setActiveScoutId(null)
-      setActiveBuildingId(null)
+      setActiveBuilding(null)
       setRoute(null)
       setCrossRefLog([])
       setScenarioRunning(true)
@@ -130,7 +130,7 @@ export default function CommandCenter() {
   )
 
   const handleBuildingClick = useCallback((building: Building) => {
-    setActiveBuildingId(building.id)
+    setActiveBuilding(building)
   }, [])
 
   const handleCommanderMessage = useCallback(
@@ -180,7 +180,7 @@ export default function CommandCenter() {
         <MapView
           center={mapCenter}
           buildings={buildings}
-          activeBuildingId={activeBuildingId ?? undefined}
+          activeBuilding={activeBuilding ?? undefined}
           onBuildingClick={handleBuildingClick}
         />
       </div>
@@ -209,17 +209,13 @@ export default function CommandCenter() {
       </div>
 
       {/* ── Building detail popup ── */}
-      {activeBuildingId && (() => {
-        const b = buildings.find((b) => b.id === activeBuildingId)
-        if (!b) return null
-        return (
-          <BuildingPopup
-            building={b}
-            onDeploy={() => { handleDeployScout(b.id); setActiveBuildingId(null) }}
-            onClose={() => setActiveBuildingId(null)}
-          />
-        )
-      })()}
+      {activeBuilding && (
+        <BuildingPopup
+          building={activeBuilding}
+          onDeploy={() => { handleDeployScout(activeBuilding.id); setActiveBuilding(null) }}
+          onClose={() => setActiveBuilding(null)}
+        />
+      )}
 
       {/* ── Cross-reference feed (top-right, above scout panels) ── */}
       {crossRefLog.length > 0 && scoutList.length === 0 && (
