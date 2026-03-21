@@ -42,6 +42,27 @@ def _centroid(coords: list[list[float]]) -> tuple[float, float]:
     return sum(lats) / len(lats), sum(lngs) / len(lngs)
 
 
+def _derive_building_name(tags: dict[str, str], osm_id: Any) -> str:
+    """Pick the best available human-readable building label."""
+    for key in ("name", "official_name", "alt_name", "brand", "operator", "addr:housename"):
+        value = tags.get(key)
+        if value:
+            return value
+
+    street = tags.get("addr:street")
+    number = tags.get("addr:housenumber")
+    if street and number:
+        return f"{number} {street}"
+    if street:
+        return street
+
+    kind = tags.get("amenity") or tags.get("building")
+    if kind and kind.lower() not in {"yes", "building", "unknown"}:
+        return f"{kind.replace('_', ' ').title()} {osm_id}"
+
+    return f"Building {osm_id}"
+
+
 def _parse_element(el: dict[str, Any]) -> BuildingData | None:
     """Parse a single Overpass element (way or relation) into BuildingData."""
     tags: dict[str, str] = el.get("tags", {})
@@ -78,11 +99,7 @@ def _parse_element(el: dict[str, Any]) -> BuildingData | None:
         or "yes"
     )
 
-    name = (
-        tags.get("name")
-        or tags.get("addr:housename")
-        or f"Building {el.get('id', 'unknown')}"
-    )
+    name = _derive_building_name(tags, el.get("id", "unknown"))
 
     return BuildingData(
         id=str(el["id"]),
