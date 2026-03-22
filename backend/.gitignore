@@ -13,11 +13,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
 .Python
 build/
 dist/
 *.egg-info/
 *.egg
+pip-wheel-metadata/
+MANIFEST
 
 # Test & type / lint caches
 .pytest_cache/
@@ -38,7 +41,9 @@ cache/
 
 # OS
 .DS_Store
+.DS_Store?
 Thumbs.db
+desktop.ini
 
 # Editors (optional — remove if you commit shared IDE config under backend/)
 .idea/

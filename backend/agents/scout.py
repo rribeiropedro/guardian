@@ -145,11 +145,13 @@ class Scout:
         system_prompt = self._build_system_prompt(viewpoint, cross_ref_context=cross_ref_context)
         vlm_result = await vlm_service.analyze_image(image_bytes, system_prompt)
 
-        # Store text summary for conversation context in handle_question.
+        # Store SITREP entry for conversation context in handle_question.
+        critical_findings = [f for f in vlm_result.findings if f.severity == "CRITICAL"]
         self._analysis_summaries.append(
-            f"[{viewpoint.facing}] risk={vlm_result.risk_level}, "
-            f"{len(vlm_result.findings)} finding(s), "
-            f"action={vlm_result.recommended_action[:120]}"
+            f"[{viewpoint.facing} face | {vlm_result.risk_level}] "
+            f"{len(vlm_result.findings)} finding(s)"
+            + (f", {len(critical_findings)} CRITICAL" if critical_findings else "")
+            + f" | Action: {vlm_result.recommended_action[:140]}"
         )
 
         # Persist external risks for other scouts to discover via cross-reference.
@@ -157,6 +159,7 @@ class Scout:
             state.write_findings(
                 scout_id=self.scout_id,
                 building_id=self.building.id,
+                building_name=self.building.name,
                 lat=self.building.lat,
                 lng=self.building.lng,
                 external_risks=vlm_result.external_risks,
@@ -246,11 +249,15 @@ class Scout:
         )
         system_prompt = self._build_system_prompt(current_vp, cross_ref_context=cross_ref_context)
 
-        # Inject previous analysis summaries into the system prompt so context
-        # is preserved without requiring multi-turn image messages.
+        # Inject running SITREP log into the system prompt — preserves field
+        # context without requiring multi-turn image messages to the API.
         if self._analysis_summaries:
-            prev = "\n".join(f"  {s}" for s in self._analysis_summaries[-3:])
-            system_prompt = f"{system_prompt}\n\nPrevious viewpoint analyses:\n{prev}"
+            prev = "\n".join(f"  {s}" for s in self._analysis_summaries[-4:])
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                f"RUNNING SITREP — prior assessments at {self.building.name}:\n{prev}\n"
+                f"Commander question (answer this in recommended_action and findings): {message}"
+            )
 
         vlm_result = await vlm_service.analyze_image(
             image_bytes,
@@ -285,15 +292,48 @@ class Scout:
         """Return (finding, impact, resolution) for a cross-reference record.
 
         If NemoClaw is enabled and available, calls the aegis-crossref agent to
-        produce richer narrative text. Falls back to template strings on failure
-        or when NemoClaw is disabled (default).
+        produce richer narrative text. Falls back to ICS-format template strings
+        on failure or when NemoClaw is disabled (default).
         """
-        # Template fallback (current behavior).
-        template_finding = f"{record.risk_type} hazard to the {record.direction}"  # type: ignore[attr-defined]
+        risk_type: str = record.risk_type  # type: ignore[attr-defined]
+        direction: str = record.direction  # type: ignore[attr-defined]
+        range_m: float = record.estimated_range_m  # type: ignore[attr-defined]
+        from_building: str = getattr(record, "building_name", record.building_id)  # type: ignore[attr-defined]
+
+        # Determine if this hazard migrates underground (gas/chemical follow utility corridors)
+        _UNDERGROUND_TYPES = {"gas", "chemical", "fuel", "utility"}
+        is_underground = any(t in risk_type.lower() for t in _UNDERGROUND_TYPES)
+
+        if is_underground:
+            migration_detail = (
+                f"This hazard migrates via underground utility corridors — not limited to line-of-sight. "
+                f"Air-monitor foundation penetrations, storm drain access, and manholes within {range_m:.0f}m "
+                f"before committing any rescue assets."
+            )
+            resolution_text = (
+                f"Coordinate with Scout {record.scout_id} sector for real-time LEL readings. "  # type: ignore[attr-defined]
+                f"Establish exclusion zone {range_m:.0f}m radius until utility confirms shut-off "
+                f"and meters read below 10% LEL. All teams stand fast pending utility notification."
+            )
+        else:
+            migration_detail = (
+                f"Direct exposure hazard within {range_m:.0f}m radius. "
+                f"Assess shared approach corridor and exposure zone before approach."
+            )
+            resolution_text = (
+                f"Stage minimum {range_m:.0f}m from shared boundary with {from_building}. "
+                f"Confirm with Scout {record.scout_id} sector before committing rescue assets to shared corridor."  # type: ignore[attr-defined]
+            )
+
+        template_finding = (
+            f"Scout {record.scout_id} [{from_building}] confirms {risk_type} hazard "  # type: ignore[attr-defined]
+            f"projecting {direction} — ~{range_m:.0f}m exposure radius. {migration_detail}"
+        )
         template_impact = (
-            f"May affect approach to {self.building.name} "
-            f"(~{record.estimated_range_m:.0f}m range from "  # type: ignore[attr-defined]
-            f"building {record.building_id})"  # type: ignore[attr-defined]
+            f"{self.building.name} is within the {risk_type} hazard projection zone "
+            f"from {from_building} ({range_m:.0f}m radius). "
+            f"Approach corridor on the {direction} side may be compromised. "
+            f"Request utility coordination and safety officer notification before team entry."
         )
 
         try:
@@ -336,6 +376,11 @@ class Scout:
             bearing=self._bearing_to_epicenter(),
             distance_m=self._distance_to_epicenter(),
             magnitude=self._magnitude,
+            material=self.building.material,
+            height_m=self.building.height_m,
+            triage_score=self.building.triage_score,
+            color=self.building.color,
+            damage_probability=self.building.damage_probability,
             cross_reference_context=cross_ref_context,
             scenario_prompt=self._scenario_prompt,
         )

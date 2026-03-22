@@ -72,6 +72,128 @@ class NemoClawClient:
             logger.warning("NemoClaw agent=%s error: %s", agent_name, exc)
             return None
 
+    async def call_agent_with_tools(
+        self,
+        agent_name: str,
+        prompt: str,
+        tool_definitions: list[dict[str, Any]],
+        tool_dispatcher: Any,  # Callable[[str, dict], dict]
+        max_turns: int = 12,
+        timeout_per_turn: float = 15.0,
+    ) -> dict[str, Any] | None:
+        """Run a NemoClaw agent in an agentic tool-calling loop.
+
+        The agent receives the prompt and tool definitions, then autonomously
+        decides which tools to call and in what order.  This method handles
+        the turn loop: receive tool_call → dispatch to Python → send result →
+        repeat until the agent emits a final text response or max_turns is hit.
+
+        Parameters
+        ----------
+        agent_name:
+            NemoClaw agent name (e.g. "aegis-route").
+        prompt:
+            Initial task description sent to the agent.
+        tool_definitions:
+            List of tool schemas (Anthropic tool-use format) the agent may call.
+        tool_dispatcher:
+            Callable(tool_name: str, args: dict) → dict.
+            Dispatches tool calls from the agent to Python implementations.
+        max_turns:
+            Maximum agentic turns before giving up and returning None.
+        timeout_per_turn:
+            Per-turn timeout in seconds.
+
+        Returns
+        -------
+        dict parsed from the agent's final response, or None on failure.
+
+        TODO: This method's internals depend on the NemoClaw SDK's tool-calling
+        API, which is not yet confirmed.  Two likely patterns:
+
+        Pattern A — SDK handles the loop internally:
+            agent = self._sdk_client.get_agent(agent_name)
+            agent.register_tools(tool_definitions, tool_dispatcher)
+            raw = await agent.run_with_tools(prompt, max_turns=max_turns)
+
+        Pattern B — Manual turn loop (shown below as the fallback):
+            We implement the loop ourselves by checking if the agent response
+            contains a "tool_call" key and dispatching accordingly.
+
+        The fallback below implements Pattern B.  Replace with Pattern A once
+        the SDK confirms its interface.
+        """
+        if not await self._ensure_connected():
+            return None
+
+        try:
+            import asyncio as _asyncio
+
+            agent = self._sdk_client.get_agent(agent_name)
+
+            # --- Pattern A: try SDK-native tool loop first ---
+            if hasattr(agent, "run_with_tools"):
+                raw = await _asyncio.wait_for(
+                    agent.run_with_tools(
+                        prompt,
+                        tools=tool_definitions,
+                        tool_handler=tool_dispatcher,
+                        max_turns=max_turns,
+                    ),
+                    timeout=timeout_per_turn * max_turns,
+                )
+                if isinstance(raw, str):
+                    return json.loads(raw)
+                return raw
+
+            # --- Pattern B: manual turn loop fallback ---
+            messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+            # Include tool definitions in the initial payload.
+            initial_payload = {
+                "messages": messages,
+                "tools": tool_definitions,
+            }
+
+            for turn in range(max_turns):
+                raw = await _asyncio.wait_for(
+                    agent.run(json.dumps(initial_payload if turn == 0 else {"messages": messages})),
+                    timeout=timeout_per_turn,
+                )
+                response = json.loads(raw) if isinstance(raw, str) else raw
+
+                # Check if the agent wants to call a tool.
+                tool_call = response.get("tool_call") or response.get("tool_use")
+                if tool_call:
+                    tool_name = tool_call.get("name") or tool_call.get("tool")
+                    tool_args = tool_call.get("input") or tool_call.get("arguments", {})
+                    if isinstance(tool_args, str):
+                        tool_args = json.loads(tool_args)
+
+                    tool_result = tool_dispatcher(tool_name, tool_args)
+                    logger.debug(
+                        "NemoClaw agent=%s called tool=%s result_keys=%s",
+                        agent_name, tool_name, list(tool_result.keys()),
+                    )
+                    # Append tool result and continue the loop.
+                    messages.append({"role": "assistant", "content": json.dumps(response)})
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.get("id", tool_name),
+                        "content": json.dumps(tool_result),
+                    })
+                    initial_payload = {}  # subsequent turns use messages only
+                    continue
+
+                # No tool call → agent has produced its final answer.
+                return response
+
+            logger.warning("NemoClaw agent=%s hit max_turns=%d without final response", agent_name, max_turns)
+            return None
+
+        except Exception as exc:
+            logger.warning("NemoClaw call_agent_with_tools agent=%s error: %s", agent_name, exc)
+            return None
+
 
 async def get_nemoclaw_client() -> NemoClawClient | None:
     """Return the singleton NemoClawClient if NemoClaw is enabled, else None."""

@@ -341,6 +341,68 @@ def _straight_line_samples(
     ]
 
 
+async def calculate_ghost_route(
+    start: tuple[float, float],
+    target_building: ScoredBuilding,
+    hazard_buildings: list[ScoredBuilding],
+    shared_state_records: list[object] | None = None,
+    scout_findings_by_building: dict[str, list[tuple[str, str]]] | None = None,
+    epicenter_lat: float = 0.0,
+    epicenter_lng: float = 0.0,
+    magnitude: float = 6.0,
+) -> list[Waypoint]:
+    """Calculate the 'ghost route' — what a normal GPS would recommend.
+
+    This is the naive shortest path (straight line, no hazard avoidance).
+    Each waypoint is annotated with the hazards it WOULD encounter so the
+    frontend can visually highlight the danger zones on the discarded path.
+
+    The contrast between ghost_waypoints (dangerous shortcuts) and waypoints
+    (safe detour) gives the commander immediate situational awareness of
+    what the earthquake has blocked off.
+
+    Pano IDs are fetched concurrently — ghost waypoints with no Street View
+    coverage are skipped the same way safe waypoints are.
+    """
+    target_lat, target_lng = _centroid(target_building.footprint)
+    samples = _straight_line_samples(start, (target_lat, target_lng))
+    if not samples:
+        return []
+
+    zones = build_hazard_zones(
+        buildings=hazard_buildings,
+        shared_state_records=shared_state_records or [],
+        scout_findings_by_building=scout_findings_by_building,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+    )
+
+    pano_ids: list[str | None] = await asyncio.gather(
+        *[streetview.get_panorama_id(lat, lng) for lat, lng in samples]
+    )
+
+    waypoints: list[Waypoint] = []
+    last_heading = _bearing(start[0], start[1], target_lat, target_lng)
+
+    for i, ((lat, lng), pano_id) in enumerate(zip(samples, pano_ids)):
+        if not pano_id:
+            continue
+        if i < len(samples) - 1:
+            next_lat, next_lng = samples[i + 1]
+            heading = _bearing(lat, lng, next_lat, next_lng)
+            last_heading = heading
+        else:
+            heading = last_heading
+
+        # Annotate with hazard even though we're NOT avoiding it — this is the
+        # whole point: show the frontend what dangers lie on the normal path.
+        hazard = classify_waypoint_hazard(lat, lng, zones)
+        waypoints.append(Waypoint(lat=lat, lng=lng, heading=heading, pano_id=pano_id, hazard=hazard))
+
+    return waypoints
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------

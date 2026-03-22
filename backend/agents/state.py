@@ -9,6 +9,7 @@ from dataclasses import dataclass
 class _RiskRecord:
     scout_id: str
     building_id: str
+    building_name: str
     origin_lat: float
     origin_lng: float
     risk_type: str
@@ -45,6 +46,7 @@ class SharedState:
         lat: float,
         lng: float,
         external_risks: list,  # list[ExternalRisk] — typed as list to avoid circular import
+        building_name: str = "",
     ) -> None:
         """Persist external risks from a completed VLM analysis."""
         for risk in external_risks:
@@ -52,6 +54,7 @@ class SharedState:
                 _RiskRecord(
                     scout_id=scout_id,
                     building_id=building_id,
+                    building_name=building_name or building_id,
                     origin_lat=lat,
                     origin_lng=lng,
                     risk_type=risk.type,
@@ -76,26 +79,53 @@ class SharedState:
                 results.append(record)
         return results
 
+    def get_all_records(self) -> list[_RiskRecord]:
+        """Return a snapshot of all current risk records.
+
+        Used by the route handler to pass scout external-risk findings to
+        the hazard-zone builder without accessing the private _records list.
+        """
+        return list(self._records)
+
     def format_cross_ref_context(
         self,
         lat: float,
         lng: float,
         exclude_scout_id: str | None = None,
     ) -> str:
-        """Return a formatted string of nearby findings for VLM prompt injection.
+        """Return an ICS-format inter-sector hazard advisory for VLM prompt injection.
 
         Returns an empty string when no relevant cross-references exist.
         """
         nearby = self.query_nearby(lat, lng, exclude_scout_id=exclude_scout_id)
         if not nearby:
             return ""
-        lines = ["Cross-reference alerts from nearby scouts:"]
+
+        lines = [
+            "INTER-SECTOR HAZARD ADVISORY — received from adjacent sector scouts:",
+            "Account for these hazards in your assessment and flag any cascading risk.",
+        ]
         for r in nearby:
-            lines.append(
-                f"  - Scout {r.scout_id} reported {r.risk_type} hazard "
-                f"to the {r.direction} from building {r.building_id} "
-                f"(~{r.estimated_range_m:.0f}m range)."
+            # Classify migration risk — gas/chemical follow utility corridors,
+            # not line-of-sight; structural debris is line-of-sight only.
+            _UNDERGROUND_TYPES = {"gas", "chemical", "fuel", "utility"}
+            is_underground = any(t in r.risk_type.lower() for t in _UNDERGROUND_TYPES)
+            migration_note = (
+                "Hazard migrates via underground utility corridors — not limited to line-of-sight. "
+                "Air-monitor foundation penetrations and manholes within radius."
+                if is_underground
+                else "Assess shared approach corridor and exposure zone before committing rescue assets."
             )
+            lines.append(
+                f"  ⚠ Scout {r.scout_id} | {r.building_name}: CONFIRMED {r.risk_type} hazard "
+                f"projecting {r.direction}, ~{r.estimated_range_m:.0f}m radius. "
+                f"This structure is within the projected zone. {migration_note}"
+            )
+
+        lines.append(
+            "ACTION: Explicitly report in external_risks any hazard from THIS building "
+            "that may compound with the above advisories toward adjacent sectors."
+        )
         return "\n".join(lines)
 
 

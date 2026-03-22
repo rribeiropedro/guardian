@@ -358,7 +358,10 @@ async def _handle_deploy_scout(client_id: str, payload: dict) -> None:
 
 
 async def _handle_request_route(client_id: str, payload: dict) -> None:
-    from .services.route import calculate_route
+    from .services.route import calculate_ghost_route, calculate_route
+    from .services.route_hazards import build_hazard_zones
+    from .agents.route_agent import RouteAgentContext, run_background_route_analysis
+    from .agents.state import get_shared_state
 
     msg = RequestRoute.model_validate(payload)
     scenario = _scenario_state.get(client_id, {})
@@ -369,19 +372,69 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
         await _send_error(client_id, f"No building with id '{msg.building_id}' in current scenario.")
         return
 
-    # Start position: use provided start or fall back to epicenter
     if msg.start is not None:
         start = (msg.start.lat, msg.start.lng)
     else:
         start = (scenario.get("epicenter_lat", target.lat), scenario.get("epicenter_lng", target.lng))
 
-    # Hazard buildings: all scored buildings except the target
     hazard_buildings = [b for bid, b in buildings_by_id.items() if bid != msg.building_id]
+    epicenter_lat: float = scenario.get("epicenter_lat", target.lat)
+    epicenter_lng: float = scenario.get("epicenter_lng", target.lng)
+    magnitude: float = scenario.get("magnitude", 6.0)
+    scenario_prompt: str = scenario.get("prompt", "")
 
-    waypoints = await calculate_route(start, target, hazard_buildings)
+    shared_state_records = get_shared_state().get_all_records()
 
-    result = RouteResult(target_building_id=msg.building_id, waypoints=waypoints)
+    route_kwargs = dict(
+        hazard_buildings=hazard_buildings,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+        shared_state_records=shared_state_records,
+    )
+
+    # Compute safe route and ghost route concurrently.
+    safe_waypoints, ghost_waypoints = await asyncio.gather(
+        calculate_route(start, target, **route_kwargs),
+        calculate_ghost_route(start, target, **route_kwargs),
+    )
+
+    # Emit immediately — frontend gets both routes without waiting for NemoClaw.
+    result = RouteResult(
+        target_building_id=msg.building_id,
+        waypoints=safe_waypoints,
+        ghost_waypoints=ghost_waypoints,
+        agent_validated=False,
+    )
     await manager.send_personal_message(client_id, result.model_dump())
+
+    # Fire background NemoClaw route analysis — does NOT block the WS handler.
+    # The agent emits an updated route_result with agent_validated=True if it
+    # finds a better path.  No message is emitted if NemoClaw is disabled.
+    zones = build_hazard_zones(
+        buildings=hazard_buildings,
+        shared_state_records=shared_state_records,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+    )
+    ctx = RouteAgentContext(
+        start=start,
+        target_building=target,
+        hazard_buildings=hazard_buildings,
+        current_waypoints=safe_waypoints,
+        ghost_waypoints=ghost_waypoints,
+        zones=zones,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+        scenario_prompt=scenario_prompt,
+    )
+    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
+    asyncio.create_task(
+        run_background_route_analysis(ctx, emit),
+        name=f"route-agent-{msg.building_id}",
+    )
 
 
 DISPATCH_TABLE = {

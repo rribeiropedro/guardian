@@ -27,6 +27,7 @@ class BuildingData(BaseModel):
     levels: int = 2
     height_m: float = 6.0
     building_type: str = "yes"
+    start_date: str = ""  # OSM start_date / construction_date tag — used for age scoring
 
 
 # Finding is needed by both VLMAnalysis and ScoutAnalysis — define it here
@@ -144,6 +145,14 @@ class RouteResult(MessageBase):
     type: Literal["route_result"] = "route_result"
     target_building_id: str
     waypoints: list[Waypoint]
+    # Ghost route: the shortest/most-direct path a normal navigation app would
+    # suggest, computed WITHOUT hazard avoidance.  Hazard annotations on each
+    # ghost waypoint show exactly WHY that path is dangerous post-earthquake.
+    # Empty until the background route agent completes its analysis.
+    ghost_waypoints: list[Waypoint] = []
+    # True once the NemoClaw route agent has validated / refined the waypoints.
+    # The frontend can show a "route finalized" indicator when this flips.
+    agent_validated: bool = False
 
 
 class ErrorMessage(MessageBase):
