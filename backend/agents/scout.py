@@ -5,6 +5,7 @@ import asyncio
 import base64
 import logging
 import math
+from collections import deque
 from collections.abc import Awaitable, Callable
 
 from ..models.schemas import (
@@ -55,6 +56,7 @@ class Scout:
         emit: Callable[[dict], Awaitable[None]],
         scenario_prompt: str = "",
         shared_state: SharedState | None = None,
+        building_queue: deque | None = None,
     ) -> None:
         self.scout_id = scout_id
         self.building = building
@@ -70,11 +72,16 @@ class Scout:
         self._analysis_summaries: list[str] = []
         # Track emitted cross-reference pairs so we don't duplicate (from_scout, to_scout).
         self._emitted_cross_refs: set[tuple[str, str]] = set()
-        # Background auto-survey task — kept so Coordinator can cancel it.
+        # Background auto-survey task (initial building only) — Coordinator awaits this.
         self._survey_task: asyncio.Task | None = None
+        # Background queue-continuation task — runs after _survey_task completes.
+        # Coordinator does NOT await this, so scouts_concluded fires on schedule.
+        self._queue_task: asyncio.Task | None = None
         # Use the provided per-coordinator state; fall back to the module singleton
         # for standalone tests that create Scout directly.
         self._shared_state: SharedState = shared_state if shared_state is not None else get_shared_state()
+        # Shared building queue — popleft to get next building after current is done.
+        self._building_queue: deque | None = building_queue
 
     # ------------------------------------------------------------------
     # Public interface
@@ -136,24 +143,32 @@ class Scout:
             ).model_dump()
         )
 
-        # Autonomously survey remaining faces in the background so the full
-        # building perimeter is covered without waiting for commander questions.
-        # This also triggers more cross-reference discoveries.
-        if len(self.viewpoints) > 1:
-            self._survey_task = asyncio.create_task(
-                self._auto_survey(),
-                name=f"scout-{self.scout_id}-survey",
-            )
+        # Autonomously survey remaining faces then continue to queued buildings.
+        # Always spawned — _auto_survey handles the single-viewpoint case gracefully.
+        self._survey_task = asyncio.create_task(
+            self._auto_survey(),
+            name=f"scout-{self.scout_id}-survey",
+        )
 
     def cancel_survey(self) -> None:
-        """Cancel the background auto-survey task if still running."""
+        """Cancel the initial-building survey task if still running."""
         if self._survey_task and not self._survey_task.done():
             self._survey_task.cancel()
+
+    def cancel_queue(self) -> None:
+        """Cancel the background queue-continuation task if still running."""
+        if self._queue_task and not self._queue_task.done():
+            self._queue_task.cancel()
 
     @property
     def survey_task(self) -> asyncio.Task | None:
         """Read-only accessor for the background survey task (used by Coordinator)."""
         return self._survey_task
+
+    @property
+    def queue_task(self) -> asyncio.Task | None:
+        """Read-only accessor for the queue-continuation task (used by Coordinator)."""
+        return self._queue_task
 
     async def analyze_viewpoint(self, viewpoint: ScoutViewpoint) -> ScoutReport:
         """Core analysis loop for a single viewpoint.
@@ -456,23 +471,109 @@ class Scout:
             logger.warning("OpenClaw crossref enrichment failed: %s", exc)
             return template_finding, template_impact, None
 
-    async def _auto_survey(self) -> None:
-        """Background task: walk remaining viewpoints after initial arrival.
+    async def _relocate_to(self, building: ScoredBuilding) -> None:
+        """Switch this scout to a new building and recalculate viewpoints.
 
-        Calls ``advance()`` in a loop so every building face is analysed and
-        emitted as a ``scout_report``.  Each cycle also queries SharedState for
-        cross-references, increasing the probability that hazards from peer
-        scouts are picked up and broadcast before the commander sends questions.
+        Emits scout_deployed(arriving) → scout_deployed(active) for the new
+        building, analyzes the first viewpoint, and resets the viewpoint index.
+        """
+        self.building = building
+        self.current_viewpoint_index = 0
+        self._current_image_bytes = None
+
+        self.viewpoints = streetview.calculate_viewpoints(
+            building.footprint,
+            self._epicenter_lat,
+            self._epicenter_lng,
+        )
+
+        if not self.viewpoints:
+            logger.warning("Scout %s: no viewpoints for building %s — skipping", self.scout_id, building.id)
+            return
+
+        await self._emit(
+            ScoutDeployed(
+                scout_id=self.scout_id,
+                building_id=building.id,
+                building_name=building.name,
+                status="arriving",
+            ).model_dump()
+        )
+
+        report = await self.analyze_viewpoint(self.viewpoints[0])
+        await self._emit(report.model_dump())
+
+        await self._emit(
+            ScoutDeployed(
+                scout_id=self.scout_id,
+                building_id=building.id,
+                building_name=building.name,
+                status="active",
+            ).model_dump()
+        )
+
+    async def _auto_survey(self) -> None:
+        """Walk remaining viewpoints of the INITIAL building only.
+
+        Completes quickly (2-3 VLM calls) so the Coordinator's
+        _wait_for_surveys_then_conclude gate fires on schedule and
+        scouts_concluded is emitted before queue buildings are processed.
+
+        After finishing, spawns _continue_queue as a truly background task
+        that the Coordinator never awaits.
         """
         try:
             while True:
                 report = await self.advance()
                 if report is None:
                     break
+            # Spawn queue continuation only if a non-empty queue was provided.
+            if self._building_queue:
+                self._queue_task = asyncio.create_task(
+                    self._continue_queue(),
+                    name=f"scout-{self.scout_id}-queue",
+                )
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("Scout %s: auto_survey failed", self.scout_id)
+
+    async def _continue_queue(self) -> None:
+        """Background task: relocate to each queued building and survey it fully.
+
+        Pops buildings from this scout's private proximity-ordered deque,
+        relocates, and walks all viewpoints (2-3 stops) before moving on.
+        Runs until the queue is empty or the task is cancelled by cancel_queue().
+        """
+        try:
+            while True:
+                if not self._building_queue:
+                    break
+                try:
+                    next_building = self._building_queue.popleft()
+                except IndexError:
+                    break
+
+                logger.info(
+                    "Scout %s: finished %s — relocating to %s",
+                    self.scout_id, self.building.name, next_building.name,
+                )
+                await self._relocate_to(next_building)
+
+                # Building had no Street View coverage — skip to next.
+                if not self.viewpoints:
+                    continue
+
+                # Walk all viewpoints of the new building (2-3 stops).
+                while True:
+                    report = await self.advance()
+                    if report is None:
+                        break
+
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Scout %s: continue_queue failed", self.scout_id)
 
     async def _on_peer_risk(self, record: _RiskRecord) -> None:
         """Push notification: a peer scout just persisted new external-risk findings.

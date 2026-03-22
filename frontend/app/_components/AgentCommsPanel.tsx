@@ -197,15 +197,30 @@ function UnifiedFeed({
   feed: AgentFeedEntry[]
 }) {
   const feedEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Start true so the first batch of messages scrolls into view automatically.
+  const isAtBottomRef = useRef(true)
 
-  // Auto-scroll
+  function onScroll() {
+    const el = scrollContainerRef.current
+    if (!el) return
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50
+  }
+
+  // Only autoscroll when the user is already at (or near) the bottom.
   useEffect(() => {
-    feedEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (isAtBottomRef.current) {
+      feedEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [feed])
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex-1 overflow-y-auto chat-scroll px-3 py-3 space-y-2.5">
+      <div
+        ref={scrollContainerRef}
+        onScroll={onScroll}
+        className="flex-1 overflow-y-auto chat-scroll px-3 py-3 space-y-2.5"
+      >
         {feed.length === 0 && (
           <div className="text-center text-[11px] text-slate-600 font-mono mt-10 arriving-pulse">
             Awaiting agent deployment…

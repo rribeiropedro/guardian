@@ -11,6 +11,16 @@ const TRIAGE_HEX: Record<TriageColor, string> = {
   YELLOW: "#ffe066",
   GREEN: "#4ade80",
 };
+
+// Colors assigned to each scout trail slot (by arrival order)
+const TRAIL_COLORS = ["#4ade80", "#60a5fa", "#a78bfa", "#f97316"] as const;
+const MAX_SCOUT_TRAILS = 4;
+
+export interface ScoutTrail {
+  scoutId: string;
+  color: string;
+  points: Array<{ lat: number; lng: number }>;
+}
 const STANDARD_STYLE = "mapbox://styles/mapbox/standard";
 
 // Virginia Tech campus default center
@@ -61,6 +71,7 @@ interface Props {
   flyTarget?: FlyTarget;
   flyRoute?: Waypoint[] | null;
   onFlyExit?: () => void;
+  scoutTrails?: ScoutTrail[];
 }
 
 export default function MapView({
@@ -76,6 +87,7 @@ export default function MapView({
   flyTarget,
   flyRoute,
   onFlyExit,
+  scoutTrails,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -109,6 +121,104 @@ export default function MapView({
   const lastFlyTargetRef = useRef<string | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverPopupRef = useRef<mapboxgl.Popup | null>(null);
+
+  // ── Scout trail animation state ───────────────────────────────────────────
+  // Mirror of the scoutTrails prop — readable from RAF callbacks without stale closures.
+  const scoutTrailsRef = useRef(scoutTrails);
+  scoutTrailsRef.current = scoutTrails;
+
+  interface SlotAnim {
+    fromPt: { lat: number; lng: number };
+    toPt: { lat: number; lng: number };
+    startTime: number;
+    duration: number;
+  }
+  // Per slot (0–2): active tween from old terminal point to new terminal point.
+  const slotAnimRef = useRef<Map<number, SlotAnim>>(new Map());
+  // Per slot: the last point that has been fully committed (animation finished).
+  const committedLastPtRef = useRef<Map<number, { lat: number; lng: number }>>(new Map());
+  // RAF handle for the trail animation loop (separate from the fly-mode RAF).
+  const trailAnimRafRef = useRef<number | null>(null);
+
+  // Smooth ease in-out for scout movement animation.
+  const easeInOutCubic = (t: number) =>
+    t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+  // Per-frame renderer for scout trail animations.
+  // Stable (no deps — reads only refs) so it can be passed to requestAnimationFrame.
+  const runTrailAnim = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const now = performance.now();
+    let anyActive = false;
+
+    for (let i = 0; i < MAX_SCOUT_TRAILS; i++) {
+      const src = map.getSource(`scout-trail-${i}`) as mapboxgl.GeoJSONSource | undefined;
+      if (!src) continue;
+
+      const trail = scoutTrailsRef.current?.[i];
+      if (!trail || trail.points.length === 0) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        continue;
+      }
+
+      const { points } = trail;
+      const anim = slotAnimRef.current.get(i);
+      let currentPt: { lat: number; lng: number };
+
+      if (anim) {
+        const t = Math.min((now - anim.startTime) / anim.duration, 1);
+        const eased = easeInOutCubic(t);
+        currentPt = {
+          lat: anim.fromPt.lat + (anim.toPt.lat - anim.fromPt.lat) * eased,
+          lng: anim.fromPt.lng + (anim.toPt.lng - anim.fromPt.lng) * eased,
+        };
+        if (t >= 1) {
+          // Snap to final, mark committed, clear anim entry.
+          currentPt = anim.toPt;
+          committedLastPtRef.current.set(i, anim.toPt);
+          slotAnimRef.current.delete(i);
+        } else {
+          anyActive = true;
+        }
+      } else {
+        currentPt = points[points.length - 1];
+      }
+
+      // All confirmed points + the (possibly mid-tween) current position.
+      const confirmedPoints = anim ? points.slice(0, -1) : points;
+      const allPoints = anim ? [...confirmedPoints, currentPt] : points;
+
+      const features: GeoJSON.Feature[] = [];
+      if (allPoints.length >= 2) {
+        features.push({
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: allPoints.map((p) => [p.lng, p.lat]),
+          },
+          properties: {},
+        });
+      }
+      allPoints.forEach((p, j) => {
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+          properties: { isCurrent: j === allPoints.length - 1 },
+        });
+      });
+
+      src.setData({ type: "FeatureCollection", features });
+    }
+
+    if (anyActive) {
+      trailAnimRafRef.current = requestAnimationFrame(runTrailAnim);
+    } else {
+      trailAnimRafRef.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startFlyLoop = useCallback(() => {
     const step = (now: number) => {
@@ -370,6 +480,65 @@ export default function MapView({
         },
       });
 
+      // ── Scout trail overlays (one per scout slot, built live as reports arrive) ──
+      for (let i = 0; i < MAX_SCOUT_TRAILS; i++) {
+        const color = TRAIL_COLORS[i];
+
+        map.addSource(`scout-trail-${i}`, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+
+        // Dashed path line
+        map.addLayer({
+          id: `scout-trail-line-${i}`,
+          source: `scout-trail-${i}`,
+          type: "line",
+          filter: ["==", "$type", "LineString"],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": color,
+            "line-width": 1.8,
+            "line-opacity": 0.7,
+            "line-dasharray": [2.5, 1.5],
+          },
+        });
+
+        // Node glow
+        map.addLayer({
+          id: `scout-trail-node-glow-${i}`,
+          source: `scout-trail-${i}`,
+          type: "circle",
+          filter: ["==", "$type", "Point"],
+          paint: {
+            "circle-color": color,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 9, 18, 20],
+            "circle-opacity": 0.15,
+            "circle-blur": 0.75,
+            "circle-stroke-width": 0,
+          },
+        });
+
+        // Node dot — current position is larger and fully opaque
+        map.addLayer({
+          id: `scout-trail-node-dot-${i}`,
+          source: `scout-trail-${i}`,
+          type: "circle",
+          filter: ["==", "$type", "Point"],
+          paint: {
+            "circle-color": color,
+            "circle-radius": [
+              "interpolate", ["linear"], ["zoom"],
+              13, ["case", ["get", "isCurrent"], 4.5, 2.5],
+              18, ["case", ["get", "isCurrent"], 9,   5],
+            ],
+            "circle-opacity": ["case", ["get", "isCurrent"], 1, 0.6],
+            "circle-stroke-color": "#ffffff",
+            "circle-stroke-width": ["case", ["get", "isCurrent"], 1.5, 0.8],
+          },
+        });
+      }
+
       // ── Tactical route overlay (fly mode) ───────────────────────────────────
       map.addSource("tactical-route", {
         type: "geojson",
@@ -564,6 +733,15 @@ export default function MapView({
       // intentionally not removing the map on effect re-runs (React strict mode)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cancel the trail animation RAF on unmount.
+  useEffect(() => {
+    return () => {
+      if (trailAnimRafRef.current !== null) {
+        cancelAnimationFrame(trailAnimRafRef.current);
+      }
+    };
   }, []);
 
   // Fly mode transitions and camera control
@@ -792,6 +970,45 @@ export default function MapView({
       })),
     });
   }, [flyRoute, mapLoaded]);
+
+  // Detect newly-arrived trail points and start per-slot animations.
+  // The actual GeoJSON updates happen inside runTrailAnim each RAF frame.
+  useEffect(() => {
+    if (!mapLoaded) return;
+
+    for (let i = 0; i < MAX_SCOUT_TRAILS; i++) {
+      const trail = scoutTrails?.[i];
+      const committed = committedLastPtRef.current.get(i);
+
+      if (!trail || trail.points.length === 0) {
+        // Trail was cleared — reset slot state.
+        committedLastPtRef.current.delete(i);
+        slotAnimRef.current.delete(i);
+        continue;
+      }
+
+      const newLast = trail.points[trail.points.length - 1];
+
+      if (!committed) {
+        // First point for this scout — commit immediately, no tween.
+        committedLastPtRef.current.set(i, newLast);
+      } else if (newLast.lat !== committed.lat || newLast.lng !== committed.lng) {
+        // New terminal point arrived — start a 1.2-second tween.
+        slotAnimRef.current.set(i, {
+          fromPt: committed,
+          toPt: newLast,
+          startTime: performance.now(),
+          duration: 1200,
+        });
+      }
+    }
+
+    // Kick off the animation loop (or restart it so static trails also redraw).
+    if (trailAnimRafRef.current !== null) {
+      cancelAnimationFrame(trailAnimRafRef.current);
+    }
+    trailAnimRafRef.current = requestAnimationFrame(runTrailAnim);
+  }, [scoutTrails, mapLoaded, runTrailAnim]);
 
   // Update triage overlay when buildings change
   useEffect(() => {

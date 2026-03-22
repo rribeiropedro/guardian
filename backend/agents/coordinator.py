@@ -15,18 +15,74 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
 
 from ..models.schemas import ScoredBuilding
 from .scout import Scout
-from .state import SharedState
+from .state import SharedState, _haversine_m
 
 logger = logging.getLogger(__name__)
 
 # Stagger delays for auto-deployed scouts (seconds).
-_AUTO_DEPLOY_DELAYS = [0.0, 3.0, 6.0]
+_AUTO_DEPLOY_DELAYS = [0.0, 3.0, 6.0, 9.0]
 # NATO phonetic names, in order.
 _SCOUT_NAMES = ["alpha", "bravo", "charlie", "delta", "echo"]
+
+
+def _build_coverage_queues(
+    start_buildings: list[ScoredBuilding],
+    remaining: list[ScoredBuilding],
+) -> list[deque]:
+    """Build one proximity-ordered deque per starting building.
+
+    Step 1 — Voronoi partition: assign each remaining building to the starting
+    building whose centroid is nearest.  Each building appears in exactly one
+    scout's queue.
+
+    Step 2 — Greedy nearest-neighbour ordering: within each partition, sort by
+    a greedy NN walk starting from the initial building position so the scout
+    always moves to the closest unvisited site next.
+
+    If ``remaining`` is empty or ``start_buildings`` has fewer than 1 entry,
+    returns a list of empty deques — callers treat deque([]) as a no-op.
+    """
+    if not start_buildings:
+        return []
+
+    n = len(start_buildings)
+    # Step 1: Voronoi partition
+    buckets: list[list[ScoredBuilding]] = [[] for _ in range(n)]
+    for b in remaining:
+        min_d = float("inf")
+        nearest_idx = 0
+        for i, s in enumerate(start_buildings):
+            d = _haversine_m(s.lat, s.lng, b.lat, b.lng)
+            if d < min_d:
+                min_d = d
+                nearest_idx = i
+        buckets[nearest_idx].append(b)
+
+    # Step 2: Greedy NN ordering within each bucket
+    queues: list[deque] = []
+    for i, start in enumerate(start_buildings):
+        unvisited = list(buckets[i])
+        ordered: list[ScoredBuilding] = []
+        cur_lat, cur_lng = start.lat, start.lng
+        while unvisited:
+            min_d = float("inf")
+            nearest = unvisited[0]
+            for b in unvisited:
+                d = _haversine_m(cur_lat, cur_lng, b.lat, b.lng)
+                if d < min_d:
+                    min_d = d
+                    nearest = b
+            ordered.append(nearest)
+            unvisited.remove(nearest)
+            cur_lat, cur_lng = nearest.lat, nearest.lng
+        queues.append(deque(ordered))
+
+    return queues
 
 
 class Coordinator:
@@ -65,17 +121,31 @@ class Coordinator:
     ) -> None:
         """Fire-and-forget: deploy up to 3 scouts with 0 / 3 / 6 s stagger.
 
-        Called immediately after ``triage_result`` is emitted so the frontend
-        can render incoming scout events while the commander reviews the map.
-        When all arrive() tasks complete and their auto-surveys finish,
-        ``on_all_scouts_done`` is fired (if set).
+        Each scout receives its own proximity-ordered coverage queue built by
+        Voronoi-partitioning the remaining buildings (beyond top-3) and sorting
+        each partition by a greedy nearest-neighbour walk from the scout's
+        starting position.  Every building appears in exactly one queue so
+        coverage is complete with no duplicates.
+
+        Called immediately after ``triage_result`` is emitted.  ``scouts_concluded``
+        fires once the initial building survey (not the full queue) completes —
+        queue continuation runs as a separate background task per scout.
         """
-        count = min(len(buildings), 3)
+        top = buildings[:4]
+        count = min(len(top), 4)
         self._auto_arrive_pending = count
-        for i, building in enumerate(buildings[:3]):
+
+        # Per-scout proximity-ordered queues; deque([]) when ≤4 buildings total.
+        coverage_queues = _build_coverage_queues(top, buildings[4:])
+
+        for i, building in enumerate(top):
             delay = _AUTO_DEPLOY_DELAYS[i] if i < len(_AUTO_DEPLOY_DELAYS) else i * 3.0
             scout_id = self._next_scout_id()
-            scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
+            queue = coverage_queues[i] if i < len(coverage_queues) else deque()
+            scout = self._make_scout(
+                scout_id, building, epicenter_lat, epicenter_lng, magnitude,
+                scenario_prompt, building_queue=queue,
+            )
             self.scouts[scout_id] = scout
             self._auto_scout_ids.add(scout_id)
             task = asyncio.create_task(
@@ -84,10 +154,11 @@ class Coordinator:
             )
             self._register_task(task, scout_id, is_auto_arrive=True)
             logger.info(
-                "Coordinator: queued scout %s → building '%s' (delay=%.0fs)",
+                "Coordinator: queued scout %s → building '%s' (delay=%.0fs, queue=%d buildings)",
                 scout_id,
                 building.name,
                 delay,
+                len(queue),
             )
 
     def manual_deploy(
@@ -160,14 +231,19 @@ class Coordinator:
             if not task.done():
                 task.cancel()
                 cancelled += 1
-        # Also cancel any background auto-survey tasks spawned by scouts.
+        # Cancel initial-building survey tasks and queue continuation tasks.
         for scout in self.scouts.values():
             scout.cancel_survey()
+            scout.cancel_queue()
         self._tasks.clear()
         self.scouts.clear()
         self._name_counter = 0
         self._auto_arrive_pending = 0
         self._auto_scout_ids.clear()
+        # Null out the callback so stale done-callbacks from the now-cancelled
+        # tasks cannot decrement the counter below zero and re-trigger
+        # scouts_concluded against the next scenario's state.
+        self._on_all_scouts_done = None
         if cancelled:
             logger.info("Coordinator: cancelled %d running scout tasks", cancelled)
 
@@ -191,6 +267,7 @@ class Coordinator:
         epicenter_lng: float,
         magnitude: float,
         scenario_prompt: str = "",
+        building_queue: deque | None = None,
     ) -> Scout:
         return Scout(
             scout_id=scout_id,
@@ -201,6 +278,7 @@ class Coordinator:
             emit=self._emit,
             scenario_prompt=scenario_prompt,
             shared_state=self.shared_state,
+            building_queue=building_queue,
         )
 
     def _register_task(
@@ -219,7 +297,12 @@ class Coordinator:
                 self._tasks.remove(t)
             except ValueError:
                 pass
-            if not t.cancelled() and t.exception():
+            # Cancelled tasks are not a failure and must not count toward the
+            # conclusion gate — they were torn down by cancel_all() for a new
+            # scenario, so firing scouts_concluded here would be premature.
+            if t.cancelled():
+                return
+            if t.exception():
                 logger.error("Scout %s task failed: %s", scout_id, t.exception())
             if is_auto_arrive and self._on_all_scouts_done is not None:
                 self._auto_arrive_pending -= 1
@@ -232,7 +315,18 @@ class Coordinator:
         task.add_done_callback(_on_done)
 
     async def _wait_for_surveys_then_conclude(self) -> None:
-        """Wait for all auto-scout survey tasks to finish, then call on_all_scouts_done."""
+        """Wait for all auto-scout initial-building surveys to finish, then call on_all_scouts_done.
+
+        Awaits survey_task for every auto-scout.  This is necessary because
+        _delayed_arrive() returns as soon as arrive() returns — before the
+        background survey task completes.
+
+        Queue-continuation tasks (_continue_queue) run as truly background tasks
+        and are intentionally NOT awaited here.  scouts_concluded fires once every
+        scout has completed its initial building assessment; hazard data is rich
+        enough at that point for an accurate route calculation.  Queue work
+        continues in the background and enriches SharedState further.
+        """
         survey_tasks = [
             s.survey_task
             for sid, s in self.scouts.items()
@@ -242,12 +336,12 @@ class Coordinator:
         ]
         if survey_tasks:
             logger.info(
-                "Coordinator: all scouts arrived — waiting for %d survey task(s) to finish",
+                "Coordinator: all scouts arrived — waiting for %d survey task(s)",
                 len(survey_tasks),
             )
             await asyncio.gather(*survey_tasks, return_exceptions=True)
 
-        logger.info("Coordinator: all scouts concluded — firing on_all_scouts_done")
+        logger.info("Coordinator: all scouts fully concluded — firing on_all_scouts_done")
         if self._on_all_scouts_done is not None:
             await self._on_all_scouts_done()
 

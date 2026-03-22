@@ -13,11 +13,15 @@ import type {
 import { useWebSocket } from '../_lib/useWebSocket'
 import ScenarioInput from './ScenarioInput'
 import LocationSearch from './LocationSearch'
+import FEMAReport from './FEMAReport'
 import AgentCommsPanel from './AgentCommsPanel'
 
 // Mapbox uses browser APIs — must be dynamically imported with no SSR
 const MapView = dynamic(() => import('./MapView'), { ssr: false })
 const VT_CENTER = { lat: 37.2284, lng: -80.4234 }
+
+// Scout trail colors by arrival order — matches AgentCommsPanel callsign colors
+const SCOUT_TRAIL_COLORS = ['#4ade80', '#60a5fa', '#a78bfa', '#f97316'] as const
 
 export default function CommandCenter() {
   const autoNavTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -35,12 +39,20 @@ export default function CommandCenter() {
   // Set by the scouts_concluded handler; a useEffect below sends the route request
   // once `send` is available (send comes from useWebSocket, defined after handleMessage).
   const [pendingRouteBuildingId, setPendingRouteBuildingId] = useState<string | null>(null)
+  const [lastScenarioPrompt, setLastScenarioPrompt] = useState('')
+  const [showFEMAReport, setShowFEMAReport] = useState(false)
 
   // ── Agent state ──────────────────────────────────────────────────────────────
   const [scouts, setScouts] = useState<Scout[]>([])
   const [agentFeed, setAgentFeed] = useState<AgentFeedEntry[]>([])
   // Maps scout_id → the feed entry ID for the active stream
   const streamEntryIds = useRef<Record<string, string>>({})
+
+  // ── Scout trail tracking ──────────────────────────────────────────────────────
+  // scoutOrder: scout IDs in the order they first appeared (determines color slot)
+  const [scoutOrder, setScoutOrder] = useState<string[]>([])
+  // scoutTrailPoints: scout_id → ordered list of visited viewpoint coordinates
+  const [scoutTrailPoints, setScoutTrailPoints] = useState<Record<string, Array<{lat: number, lng: number}>>>({})
 
   const addFeedEntry = useCallback((entry: Omit<AgentFeedEntry, 'id' | 'timestamp'>) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -137,7 +149,9 @@ export default function CommandCenter() {
           const exists = prev.find(s => s.scout_id === msg.scout_id)
           if (exists) {
             return prev.map(s =>
-              s.scout_id === msg.scout_id ? { ...s, status: msg.status } : s
+              s.scout_id === msg.scout_id
+                ? { ...s, status: msg.status, building_id: msg.building_id, building_name: msg.building_name }
+                : s
             )
           }
           return [...prev, {
@@ -148,6 +162,8 @@ export default function CommandCenter() {
             messages: [],
           }]
         })
+        // Register scout in color-slot order on first appearance
+        setScoutOrder(prev => prev.includes(msg.scout_id) ? prev : [...prev, msg.scout_id])
 
         const statusText =
           msg.status === 'arriving'
@@ -215,6 +231,11 @@ export default function CommandCenter() {
             ? { ...s, messages: [...s.messages, chatMsg], viewpoint: msg.viewpoint }
             : s
         ))
+        // Append viewpoint to this scout's trail
+        setScoutTrailPoints(prev => ({
+          ...prev,
+          [msg.scout_id]: [...(prev[msg.scout_id] ?? []), { lat: msg.viewpoint.lat, lng: msg.viewpoint.lng }],
+        }))
         break
       }
 
@@ -320,6 +341,10 @@ export default function CommandCenter() {
       setScouts([])
       setAgentFeed([])
       streamEntryIds.current = {}
+      setScoutOrder([])
+      setScoutTrailPoints({})
+      setLastScenarioPrompt(prompt)
+      setShowFEMAReport(false)
       setMapCenter([scenarioCenter.lng, scenarioCenter.lat])
       send({ type: 'start_scenario', prompt, center: scenarioCenter, radius_m })
     },
@@ -342,6 +367,16 @@ export default function CommandCenter() {
     return orphanReds.length > 0 ? [...buildings, ...orphanReds] : buildings
   }, [buildings, pinnedReds])
 
+  // Stable array of trail data indexed by color slot — passed to MapView
+  const scoutTrails = useMemo(() =>
+    scoutOrder.map((id, i) => ({
+      scoutId: id,
+      color: SCOUT_TRAIL_COLORS[i] ?? '#94a3b8',
+      points: scoutTrailPoints[id] ?? [],
+    })),
+    [scoutOrder, scoutTrailPoints],
+  )
+
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-[#0a0a0f]">
       {/* ── Full-screen map ── */}
@@ -358,6 +393,7 @@ export default function CommandCenter() {
           flyTarget={flyTarget ? { lat: flyTarget.lat, lng: flyTarget.lng, buildingId: flyTarget.id, name: flyTarget.name } : undefined}
           flyRoute={route}
           onFlyExit={handleExitFly}
+          scoutTrails={scoutTrails}
         />
       </div>
       <style>{`.aegis-stop-popup .mapboxgl-popup-content{background:transparent;padding:0;box-shadow:none}.aegis-stop-popup .mapboxgl-popup-tip{display:none}`}</style>
@@ -389,6 +425,46 @@ export default function CommandCenter() {
 
         {buildings.length > 0 && (
           <BuildingSummary buildings={buildings} />
+        )}
+
+        {route !== null && (
+          <button
+            onClick={() => setShowFEMAReport(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 backdrop-blur-md text-xs font-mono text-blue-400 hover:text-blue-300 hover:border-blue-400/40 transition-colors"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            FEMA Report
+          </button>
+        )}
+
+        {buildings.length > 0 && !scenarioRunning && !flyMode && (
+          <button
+            onClick={() => {
+              setBuildings([])
+              setPinnedReds([])
+              setActiveBuilding(null)
+              setRoute(null)
+              setScouts([])
+              setAgentFeed([])
+              setScoutOrder([])
+              setScoutTrailPoints({})
+              setPendingRouteBuildingId(null)
+              streamEntryIds.current = {}
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-slate-200 hover:border-white/20 transition-colors"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            New Scenario
+          </button>
         )}
       </div>
 
@@ -423,13 +499,43 @@ export default function CommandCenter() {
         </div>
       )}
 
-      {/* ── Scenario input ── */}
-      <ScenarioInput
-        wsStatus={wsStatus}
-        onSubmit={handleScenarioSubmit}
-        center={scenarioCenter}
-        disabled={scenarioRunning}
-      />
+      {/* ── Scout trail legend ── */}
+      {scoutOrder.length > 0 && !flyMode && (
+        <div className="absolute bottom-24 left-4 z-10 px-3 py-2 rounded-xl border border-white/[0.07] bg-[rgba(8,10,18,0.85)] backdrop-blur-md pointer-events-none">
+          <div className="text-[9px] font-mono font-bold tracking-widest text-slate-600 uppercase mb-1.5">
+            Scout Trails
+          </div>
+          <div className="flex flex-col gap-1">
+            {scoutOrder.map((id, i) => (
+              <div key={id} className="flex items-center gap-2">
+                <svg width="16" height="8" viewBox="0 0 16 8">
+                  <line x1="0" y1="4" x2="16" y2="4" stroke={SCOUT_TRAIL_COLORS[i] ?? '#94a3b8'} strokeWidth="1.5" strokeDasharray="3 1.5" />
+                </svg>
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: SCOUT_TRAIL_COLORS[i] ?? '#94a3b8' }}
+                />
+                <span className="text-[10px] font-mono" style={{ color: SCOUT_TRAIL_COLORS[i] ?? '#94a3b8' }}>
+                  SCOUT-{id.toUpperCase()}
+                </span>
+                <span className="text-[9px] font-mono text-slate-600">
+                  {(scoutTrailPoints[id]?.length ?? 0)} pts
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Scenario input — hidden once a scenario is active or in fly mode ── */}
+      {!flyMode && !scenarioRunning && buildings.length === 0 && (
+        <ScenarioInput
+          wsStatus={wsStatus}
+          onSubmit={handleScenarioSubmit}
+          center={scenarioCenter}
+          disabled={false}
+        />
+      )}
 
       {/* ── Agent Comms Panel ── */}
       <AgentCommsPanel
@@ -438,6 +544,20 @@ export default function CommandCenter() {
         onMessage={handleCommanderMessage}
         onRequestRoute={handleRequestRoute}
       />
+
+      {/* ── FEMA Report overlay ── */}
+      {showFEMAReport && (
+        <FEMAReport
+          buildings={buildings}
+          scouts={scouts}
+          route={route ?? []}
+          feed={agentFeed}
+          scenarioPrompt={lastScenarioPrompt}
+          epicenterLat={scenarioCenter.lat}
+          epicenterLng={scenarioCenter.lng}
+          onClose={() => setShowFEMAReport(false)}
+        />
+      )}
     </div>
   )
 }

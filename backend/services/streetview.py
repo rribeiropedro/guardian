@@ -265,13 +265,12 @@ def calculate_viewpoints(
 
     c_lat, c_lng = _centroid(building_footprint)
 
-    # Determine how many sides (4 for small buildings, 8 for larger ones)
-    # Estimate footprint area via bounding box; use 8 viewpoints for anything
-    # larger than ~20 × 20 m.
+    # 2 viewpoints for small buildings, 3 for larger ones.
+    # Keeping stops low (2-3 max) ensures scouts move quickly between buildings.
     lat_span = max(p[0] for p in building_footprint) - min(p[0] for p in building_footprint)
     lng_span = max(p[1] for p in building_footprint) - min(p[1] for p in building_footprint)
     approx_area_m2 = (lat_span * 111_320) * (lng_span * 111_320 * math.cos(math.radians(c_lat)))
-    n_viewpoints = 8 if approx_area_m2 > 400 else 4
+    n_viewpoints = 3 if approx_area_m2 > 400 else 2
 
     step = 360.0 / n_viewpoints
 

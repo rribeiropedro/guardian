@@ -24,6 +24,8 @@ _SONNET_MODEL = "claude-sonnet-4-5"
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 _LATENCY_THRESHOLD_S = 6.0
 _MAX_RETRIES = 3
+# Token cap — keeps each stop brief. Enough for SITREP + compact JSON (2-3 findings).
+_MAX_TOKENS = 550
 
 # Session-level flag: set True once Sonnet exceeds the latency threshold.
 # Process-global — call reset_haiku_mode() at the start of each new scenario
@@ -201,7 +203,7 @@ async def analyze_image_stream(
 
         async with client.messages.stream(
             model=model,
-            max_tokens=1024,
+            max_tokens=_MAX_TOKENS,
             system=system_prompt,
             messages=messages,
         ) as stream:
@@ -421,11 +423,12 @@ def build_system_prompt(
         "□ RED PLACARD: UNSAFE — specify imminent danger (collapse risk / gas / structural). "
         "   Post at ALL entrances. Define exclusion zone radius.\n"
         "\n"
-        "Begin your response with a single plain-English field radio message (1-2 sentences, "
+        "BREVITY REQUIRED — token budget is tight. Each finding description: one short phrase. "
+        "Recommended action: one sentence max. Report only the 2-3 most significant findings.\n\n"
+        "Begin your response with a single plain-English field radio message (1 sentence, "
         "ICS language, no JSON). Start it with \"SITREP: \". "
         "Then write \"---\" on its own line. "
-        "Then write the JSON object. All JSON text fields must use ICS plain-language — "
-        "specific, measurable, and actionable.\n"
+        "Then write the JSON object.\n"
         "{\n"
         '  "findings": [\n'
         '    {\n'
@@ -472,7 +475,7 @@ async def _call_claude(
     try:
         response = await client.messages.create(
             model=model,
-            max_tokens=1024,
+            max_tokens=_MAX_TOKENS,
             system=system_prompt,
             messages=messages,
         )
