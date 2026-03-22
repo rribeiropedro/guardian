@@ -366,40 +366,44 @@ class Scout:
         range_m: float = record.estimated_range_m  # type: ignore[attr-defined]
         from_building: str = getattr(record, "building_name", record.building_id)  # type: ignore[attr-defined]
 
+        from_callsign = f"SCOUT-{record.scout_id.upper()}"  # type: ignore[attr-defined]
+        to_callsign = f"SCOUT-{self.scout_id.upper()}"
+
         # Determine if this hazard migrates underground (gas/chemical follow utility corridors)
         _UNDERGROUND_TYPES = {"gas", "chemical", "fuel", "utility"}
         is_underground = any(t in risk_type.lower() for t in _UNDERGROUND_TYPES)
 
         if is_underground:
             migration_detail = (
-                f"This hazard migrates via underground utility corridors — not limited to line-of-sight. "
-                f"Air-monitor foundation penetrations, storm drain access, and manholes within {range_m:.0f}m "
+                f"Hazard propagates via underground utility corridors — exposure not limited to line-of-sight. "
+                f"Monitor foundation penetrations, storm drain access, and manholes within {range_m:.0f}m "
                 f"before committing any rescue assets."
             )
             resolution_text = (
-                f"Coordinate with Scout {record.scout_id} sector for real-time LEL readings. "  # type: ignore[attr-defined]
-                f"Establish exclusion zone {range_m:.0f}m radius until utility confirms shut-off "
-                f"and meters read below 10% LEL. All teams stand fast pending utility notification."
+                f"Coordinate with {from_callsign} for real-time LEL readings. "
+                f"Establish {range_m:.0f}m exclusion zone — no entry until utility confirms shut-off "
+                f"and atmospheric monitoring reads below 10% LEL. All units hold staging positions "
+                f"pending Utilities notification. Safety Officer notification required."
             )
         else:
             migration_detail = (
-                f"Direct exposure hazard within {range_m:.0f}m radius. "
-                f"Assess shared approach corridor and exposure zone before approach."
+                f"Direct-exposure hazard, {range_m:.0f}m radius. "
+                f"Evaluate shared approach corridor and exposure zone prior to any advance."
             )
             resolution_text = (
                 f"Stage minimum {range_m:.0f}m from shared boundary with {from_building}. "
-                f"Confirm with Scout {record.scout_id} sector before committing rescue assets to shared corridor."  # type: ignore[attr-defined]
+                f"Confirm clearance with {from_callsign} before committing assets to {direction} corridor."
             )
 
         template_finding = (
-            f"Scout {record.scout_id} [{from_building}] confirms {risk_type} hazard "  # type: ignore[attr-defined]
-            f"projecting {direction} — ~{range_m:.0f}m exposure radius. {migration_detail}"
+            f"{from_callsign} to {to_callsign}: Confirmed {risk_type.upper()} hazard at {from_building}. "
+            f"Hazard vector {direction}, estimated exposure radius {range_m:.0f}m. {migration_detail}"
         )
         template_impact = (
-            f"{self.building.name} is within the {risk_type} hazard projection zone "
-            f"from {from_building} ({range_m:.0f}m radius). "
-            f"Approach corridor on the {direction} side may be compromised. "
-            f"Request utility coordination and safety officer notification before team entry."
+            f"BE ADVISED — {to_callsign} sector ({self.building.name}) lies within {risk_type} "
+            f"hazard projection from {from_callsign} sector ({from_building}), {range_m:.0f}m radius. "
+            f"{direction} approach corridor COMPROMISED. "
+            f"Requesting utility coordination and Safety Officer notification. Standby for updated access assessment."
         )
 
         try:
@@ -414,7 +418,7 @@ class Scout:
                 risk_type=record.risk_type,  # type: ignore[attr-defined]
                 direction=record.direction,  # type: ignore[attr-defined]
                 from_building_id=record.building_id,  # type: ignore[attr-defined]
-                from_building_name=f"Building {record.building_id}",  # type: ignore[attr-defined]
+                from_building_name=from_building,
                 to_building_name=self.building.name,
                 estimated_range_m=record.estimated_range_m,  # type: ignore[attr-defined]
             )
