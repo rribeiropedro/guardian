@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import { planTacticalRoute } from "../_lib/routePlanner";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 const TRIAGE_HEX = {
@@ -50,8 +51,12 @@ interface FlyViewProps {
 
 interface StoredTriageBuilding {
   id: string;
+  name?: string;
   color: keyof typeof TRIAGE_HEX;
   height_m: number;
+  material?: string;
+  triage_score?: number;
+  damage_probability?: number;
   footprint: [number, number][];
 }
 
@@ -288,6 +293,168 @@ export default function FlyView({
         }
       }
 
+      // ── Tactical route overlay (bright green road path) ──────────────────────
+      map.addSource("tactical-route", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      // Glow halo under the line
+      map.addLayer({
+        id: "tactical-route-glow",
+        source: "tactical-route",
+        type: "line",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#00ff44",
+          "line-width": 10,
+          "line-opacity": 0.18,
+          "line-blur": 4,
+        },
+      });
+
+      // Solid bright green line
+      map.addLayer({
+        id: "tactical-route-line",
+        source: "tactical-route",
+        type: "line",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#00ff44",
+          "line-width": 2.5,
+          "line-opacity": 0.9,
+        },
+      });
+
+      // ── Tactical stop dots ────────────────────────────────────────────────────
+      map.addSource("tactical-stops", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "tactical-stops-glow",
+        source: "tactical-stops",
+        type: "circle",
+        paint: {
+          "circle-color": "#00ff44",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 10, 18, 22],
+          "circle-opacity": 0.2,
+          "circle-blur": 0.7,
+          "circle-stroke-width": 0,
+        },
+      });
+
+      map.addLayer({
+        id: "tactical-stops-dot",
+        source: "tactical-stops",
+        type: "circle",
+        paint: {
+          "circle-color": "#00ff44",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 4, 18, 9],
+          "circle-opacity": 1,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
+      });
+
+      // Number labels on each stop
+      map.addLayer({
+        id: "tactical-stops-label",
+        source: "tactical-stops",
+        type: "symbol",
+        layout: {
+          "text-field": ["to-string", ["get", "index"]],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 13, 9, 18, 13],
+          "text-anchor": "center",
+          "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
+        },
+        paint: {
+          "text-color": "#000000",
+          "text-halo-color": "#00ff44",
+          "text-halo-width": 0.5,
+        },
+      });
+
+      // Hover-delay tooltip on stops (shows after 600 ms of hovering)
+      const COLOR_LABEL: Record<string, string> = {
+        RED: "CRITICAL", ORANGE: "HIGH PRIORITY", YELLOW: "MODERATE", GREEN: "LOW IMPACT",
+      };
+      const COLOR_HEX_LABEL: Record<string, string> = {
+        RED: "#ff1a1a", ORANGE: "#fb923c", YELLOW: "#eab308", GREEN: "#22c55e",
+      };
+
+      map.on("mouseenter", "tactical-stops-dot", (e) => {
+        map.getCanvas().style.cursor = "pointer";
+        if (!e.features?.[0] || !mapRef.current) return;
+        const props = e.features[0].properties as {
+          index: number; name: string; color: string; reason: string;
+          height_m: number; material: string; damage_probability: number;
+        };
+        hoverTimerRef.current = setTimeout(() => {
+          if (!mapRef.current) return;
+          hoverPopupRef.current?.remove();
+          const dmgPct = Math.round((props.damage_probability ?? 0) * 100);
+          const html = `
+            <div style="font-family:monospace;font-size:11px;max-width:240px;line-height:1.6;color:#e2e8f0;background:rgba(8,10,18,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:12px 14px;backdrop-filter:blur(8px);">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <span style="font-size:18px;font-weight:900;color:#00ff44;">·${props.index}·</span>
+                <span style="font-size:12px;font-weight:bold;color:#f8fafc;">${props.name}</span>
+              </div>
+              <div style="display:inline-block;padding:2px 7px;border-radius:4px;background:${COLOR_HEX_LABEL[props.color] ?? "#94a3b8"}22;color:${COLOR_HEX_LABEL[props.color] ?? "#94a3b8"};font-weight:bold;font-size:10px;letter-spacing:0.05em;margin-bottom:8px;">${COLOR_LABEL[props.color] ?? props.color}</div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin-bottom:8px;color:#94a3b8;">
+                <span>Height</span><span style="color:#e2e8f0;">${props.height_m ? props.height_m.toFixed(1) + " m" : "—"}</span>
+                <span>Material</span><span style="color:#e2e8f0;">${props.material || "Unknown"}</span>
+                <span>Damage risk</span><span style="color:#e2e8f0;">${dmgPct}%</span>
+              </div>
+              <div style="color:#cbd5e1;border-top:1px solid rgba(255,255,255,0.07);padding-top:8px;font-size:10.5px;">${props.reason}</div>
+            </div>`;
+          hoverPopupRef.current = new mapboxgl.Popup({
+            closeButton: false, maxWidth: "280px", className: "aegis-stop-popup",
+          })
+            .setLngLat((e.features![0].geometry as GeoJSON.Point).coordinates as [number, number])
+            .setHTML(html)
+            .addTo(mapRef.current);
+        }, 600);
+      });
+
+      map.on("mouseleave", "tactical-stops-dot", () => {
+        map.getCanvas().style.cursor = "";
+        if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
+        hoverPopupRef.current?.remove();
+        hoverPopupRef.current = null;
+      });
+
+      // Kick off async route calculation
+      if (triageBuildings.length >= 2) {
+        planTacticalRoute(triageBuildings, TOKEN).then((result) => {
+          if (!result || !mapRef.current) return;
+          const routeSrc = mapRef.current.getSource("tactical-route") as mapboxgl.GeoJSONSource | undefined;
+          routeSrc?.setData({
+            type: "FeatureCollection",
+            features: [{ type: "Feature", geometry: result.geometry, properties: {} }],
+          });
+          const stopSrc = mapRef.current.getSource("tactical-stops") as mapboxgl.GeoJSONSource | undefined;
+          stopSrc?.setData({
+            type: "FeatureCollection",
+            features: result.stops.map((s, i) => ({
+              type: "Feature" as const,
+              geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
+              properties: {
+                index: i + 1,
+                name: s.name,
+                color: s.color,
+                score: s.score,
+                height_m: s.height_m,
+                material: s.material,
+                damage_probability: s.damage_probability,
+                reason: s.reason,
+              },
+            })),
+          });
+        });
+      }
+
       // Force a forward-looking initial pose (not at the ground) before controls activate.
       const initialState = stateRef.current;
       const initialCamera = map.getFreeCameraOptions();
@@ -319,6 +486,8 @@ export default function FlyView({
 
   const mouseDownRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverPopupRef = useRef<mapboxgl.Popup | null>(null);
 
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
@@ -396,6 +565,7 @@ export default function FlyView({
 
   return (
     <div className="fixed inset-0 bg-[#0a0a0f]">
+      <style>{`.aegis-stop-popup .mapboxgl-popup-content{background:transparent;padding:0;box-shadow:none}.aegis-stop-popup .mapboxgl-popup-tip{display:none}`}</style>
       <div
         ref={containerRef}
         style={{

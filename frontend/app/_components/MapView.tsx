@@ -20,6 +20,7 @@ const DEFAULT_ZOOM = 15.5;
 interface Props {
   center?: [number, number];
   buildings: Building[];
+  pinnedReds?: Building[];
   activeBuilding?: Building;
   onBuildingClick: (building: Building, point: { x: number; y: number }) => void;
   ensureSpaceForOverlay?: boolean;
@@ -30,6 +31,7 @@ interface Props {
 export default function MapView({
   center,
   buildings,
+  pinnedReds = [],
   activeBuilding,
   onBuildingClick,
   ensureSpaceForOverlay,
@@ -175,6 +177,38 @@ export default function MapView({
         },
       });
 
+      // ── Pinned reds — always visible, never cleared ───────────────────────────
+      map.addSource("pinned-reds", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "pinned-reds-glow",
+        source: "pinned-reds",
+        type: "circle",
+        paint: {
+          "circle-color": "#ff1a1a",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 8, 18, 22],
+          "circle-opacity": 0.25,
+          "circle-blur": 0.7,
+          "circle-stroke-width": 0,
+        },
+      });
+
+      map.addLayer({
+        id: "pinned-reds-dot",
+        source: "pinned-reds",
+        type: "circle",
+        paint: {
+          "circle-color": "#ff1a1a",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 3.5, 18, 9],
+          "circle-opacity": 1,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
+      });
+
       // ── Epicenter pin (double-click to set) ──────────────────────────────────
       map.addSource("epicenter", {
         type: "geojson",
@@ -290,6 +324,18 @@ export default function MapView({
     });
   }, [epicenter]);
 
+  // Pinned reds — only ever grows, never clears
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const source = map.getSource("pinned-reds") as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features: pinnedReds.map((b) => buildingToMarkerFeature(b)),
+    });
+  }, [pinnedReds]);
+
   // Fly to new center
   useEffect(() => {
     if (!center || !mapRef.current) return;
@@ -375,10 +421,20 @@ function updateSource(map: mapboxgl.Map, buildings: Building[]) {
 function buildingToMarkerFeature(
   b: Building,
 ): GeoJSON.Feature<GeoJSON.Point> {
+  // b.lat/lng can be 0 or missing if the backend didn't populate them.
+  // Fall back to the footprint centroid so the dot always lands on the building.
+  let lat = b.lat;
+  let lng = b.lng;
+  if ((!lat || !lng) && b.footprint?.length > 0) {
+    let sumLat = 0, sumLng = 0;
+    for (const [la, ln] of b.footprint) { sumLat += la; sumLng += ln; }
+    lat = sumLat / b.footprint.length;
+    lng = sumLng / b.footprint.length;
+  }
   return {
     type: "Feature",
     id: `${b.id}-marker`,
-    geometry: { type: "Point", coordinates: [b.lng, b.lat] },
+    geometry: { type: "Point", coordinates: [lng, lat] },
     properties: {
       building_id: b.id,
       color_hex: TRIAGE_HEX[b.color],

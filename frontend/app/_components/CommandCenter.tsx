@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import type {
@@ -21,6 +21,7 @@ export default function CommandCenter() {
   const router = useRouter()
   const autoNavTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [buildings, setBuildings] = useState<Building[]>([])
+  const [pinnedReds, setPinnedReds] = useState<Building[]>([])
   const [activeBuilding, setActiveBuilding] = useState<Building | null>(null)
   const [scenarioRunning, setScenarioRunning] = useState(false)
   const [route, setRoute] = useState<Waypoint[] | null>(null)
@@ -41,8 +42,12 @@ export default function CommandCenter() {
         const sourceBuildings = triageBuildings ?? buildings
         const triageSnapshot = sourceBuildings.map((b) => ({
           id: b.id,
+          name: b.name,
           color: b.color,
           height_m: b.height_m,
+          material: b.material,
+          triage_score: b.triage_score,
+          damage_probability: b.damage_probability,
           footprint: b.footprint,
         }))
         sessionStorage.setItem('aegis_triage_buildings', JSON.stringify(triageSnapshot))
@@ -65,6 +70,12 @@ export default function CommandCenter() {
     switch (msg.type) {
       case 'triage_result': {
         setBuildings(msg.buildings)
+        // Accumulate reds — they never get removed once seen
+        setPinnedReds((prev) => {
+          const existingIds = new Set(prev.map((b) => b.id))
+          const newReds = msg.buildings.filter((b) => b.color === 'RED' && !existingIds.has(b.id))
+          return newReds.length > 0 ? [...prev, ...newReds] : prev
+        })
         setScenarioRunning(false)
         clearAutoNavTimeout()
         if (msg.buildings.length > 0) {
@@ -100,7 +111,8 @@ export default function CommandCenter() {
   const handleScenarioSubmit = useCallback(
     (prompt: string, radius_m: number) => {
       clearAutoNavTimeout()
-      setBuildings([])
+      // Keep red buildings visible during the loading transition
+      setBuildings((prev) => prev.filter((b) => b.color === 'RED'))
       setActiveBuilding(null)
       setRoute(null)
       setScenarioRunning(true)
@@ -121,13 +133,21 @@ export default function CommandCenter() {
     setScenarioCenter({ lat, lng })
   }, [])
 
+  // Always include pinned reds even when buildings is cleared/updated
+  const displayBuildings = useMemo(() => {
+    const currentIds = new Set(buildings.map((b) => b.id))
+    const orphanReds = pinnedReds.filter((r) => !currentIds.has(r.id))
+    return orphanReds.length > 0 ? [...buildings, ...orphanReds] : buildings
+  }, [buildings, pinnedReds])
+
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-[#0a0a0f]">
       {/* ── Full-screen map ── */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh' }}>
         <MapView
           center={mapCenter}
-          buildings={buildings}
+          buildings={displayBuildings}
+          pinnedReds={pinnedReds}
           activeBuilding={activeBuilding ?? undefined}
           onBuildingClick={handleBuildingClick}
           onMapDoubleClick={handleMapDoubleClick}
