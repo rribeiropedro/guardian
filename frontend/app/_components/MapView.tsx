@@ -76,19 +76,19 @@ interface Props {
 
 function createScoutAvatarEl(color: string): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "scout-avatar-wrap";
+  wrap.style.cssText = "position:relative;width:26px;height:40px;cursor:pointer;";
   wrap.innerHTML = `
-    <div class="scout-avatar-body">
-      <div class="scout-hat" style="background:${color}"></div>
-      <div class="scout-hat-brim" style="background:${color}"></div>
-      <div class="scout-head" style="background:${color}55;border-color:${color}"></div>
-      <div class="scout-torso" style="background:${color}"></div>
-      <div class="scout-legs">
-        <div class="scout-leg-l" style="background:${color}cc"></div>
-        <div class="scout-leg-r" style="background:${color}cc"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0px;">
+      <div style="width:14px;height:6px;border-radius:7px 7px 0 0;background:${color};margin-bottom:-2px;"></div>
+      <div style="height:3px;border-radius:1px;width:18px;background:${color};"></div>
+      <div style="width:13px;height:13px;border-radius:50%;background:${color}55;border:2px solid ${color};opacity:0.9;"></div>
+      <div style="width:15px;height:11px;border-radius:3px;background:${color};"></div>
+      <div style="display:flex;gap:4px;margin-top:1px;">
+        <div style="width:5px;height:9px;border-radius:2px;background:${color}cc;transform-origin:top center;animation:scout-leg-l 1.2s ease-in-out infinite;"></div>
+        <div style="width:5px;height:9px;border-radius:2px;background:${color}cc;transform-origin:top center;animation:scout-leg-r 1.2s ease-in-out infinite;"></div>
       </div>
     </div>
-    <div class="scout-pin" style="border-top:6px solid ${color}"></div>
+    <div style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid ${color};margin:0 auto;"></div>
   `;
   return wrap;
 }
