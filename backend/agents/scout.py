@@ -8,6 +8,9 @@ import math
 from collections.abc import Awaitable, Callable
 
 from ..models.schemas import (
+    AgentStreamChunk,
+    AgentStreamEnd,
+    AgentStreamStart,
     CrossReference,
     ScoutAnalysis,
     ScoutDeployed,
@@ -17,7 +20,7 @@ from ..models.schemas import (
     VLMAnalysis,
 )
 from ..services import annotation, streetview, vlm as vlm_service
-from .state import get_shared_state
+from .state import _haversine_m, get_shared_state
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,8 @@ class Scout:
         self._analysis_summaries: list[str] = []
         # Track emitted cross-reference pairs so we don't duplicate (from_scout, to_scout).
         self._emitted_cross_refs: set[tuple[str, str]] = set()
+        # Background auto-survey task — kept so Coordinator can cancel it.
+        self._survey_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -68,10 +73,12 @@ class Scout:
     async def arrive(self) -> None:
         """Full arrival sequence:
         1. Calculate viewpoints.
-        2. Emit scout_deployed(arriving).
-        3. Analyze the epicenter-facing viewpoint.
-        4. Emit scout_report.
-        5. Emit scout_deployed(active).
+        2. Subscribe to SharedState push notifications from peer scouts.
+        3. Emit scout_deployed(arriving).
+        4. Analyze the epicenter-facing viewpoint.
+        5. Emit scout_report.
+        6. Emit scout_deployed(active).
+        7. Launch background auto-survey of remaining viewpoints.
         """
         logger.info(
             "SCOUT %s arriving at building=%s prompt=%r",
@@ -91,6 +98,10 @@ class Scout:
                 self.building.id,
             )
             return
+
+        # Register push callback so this scout is immediately notified when any
+        # peer writes external-risk findings that reach this building's position.
+        get_shared_state().subscribe(self._on_peer_risk)
 
         await self._emit(
             ScoutDeployed(
@@ -114,6 +125,20 @@ class Scout:
                 status="active",
             ).model_dump()
         )
+
+        # Autonomously survey remaining faces in the background so the full
+        # building perimeter is covered without waiting for commander questions.
+        # This also triggers more cross-reference discoveries.
+        if len(self.viewpoints) > 1:
+            self._survey_task = asyncio.create_task(
+                self._auto_survey(),
+                name=f"scout-{self.scout_id}-survey",
+            )
+
+    def cancel_survey(self) -> None:
+        """Cancel the background auto-survey task if still running."""
+        if self._survey_task and not self._survey_task.done():
+            self._survey_task.cancel()
 
     async def analyze_viewpoint(self, viewpoint: ScoutViewpoint) -> ScoutReport:
         """Core analysis loop for a single viewpoint.
@@ -143,7 +168,7 @@ class Scout:
         self._current_image_bytes = image_bytes
 
         system_prompt = self._build_system_prompt(viewpoint, cross_ref_context=cross_ref_context)
-        vlm_result = await vlm_service.analyze_image(image_bytes, system_prompt)
+        vlm_result = await self._stream_vlm(image_bytes, system_prompt)
 
         # Store SITREP entry for conversation context in handle_question.
         critical_findings = [f for f in vlm_result.findings if f.severity == "CRITICAL"]
@@ -259,11 +284,7 @@ class Scout:
                 f"Commander question (answer this in recommended_action and findings): {message}"
             )
 
-        vlm_result = await vlm_service.analyze_image(
-            image_bytes,
-            system_prompt,
-            user_message=message,
-        )
+        vlm_result = await self._stream_vlm(image_bytes, system_prompt, user_message=message)
 
         self._analysis_summaries.append(
             f"[{current_vp.facing} follow-up] Q='{message[:60]}' "
@@ -288,12 +309,57 @@ class Scout:
     # Private helpers
     # ------------------------------------------------------------------
 
+    async def _stream_vlm(
+        self,
+        image_bytes: bytes,
+        system_prompt: str,
+        user_message: str | None = None,
+    ) -> VLMAnalysis:
+        """Call VLM with streaming, emitting agent_stream_* messages to the frontend.
+
+        Emits agent_stream_start, then agent_stream_chunk for each token,
+        then agent_stream_end. Returns the fully parsed VLMAnalysis.
+        """
+        seq = 0
+
+        await self._emit(
+            AgentStreamStart(
+                scout_id=self.scout_id,
+                building_id=self.building.id,
+            ).model_dump()
+        )
+
+        async def on_chunk(chunk: str) -> None:
+            nonlocal seq
+            await self._emit(
+                AgentStreamChunk(
+                    scout_id=self.scout_id,
+                    building_id=self.building.id,
+                    chunk=chunk,
+                    sequence=seq,
+                ).model_dump()
+            )
+            seq += 1
+
+        result = await vlm_service.analyze_image_stream(
+            image_bytes, system_prompt, on_chunk=on_chunk, user_message=user_message
+        )
+
+        await self._emit(
+            AgentStreamEnd(
+                scout_id=self.scout_id,
+                building_id=self.building.id,
+            ).model_dump()
+        )
+
+        return result
+
     async def _enrich_cross_ref(self, record: object) -> tuple[str, str, str | None]:
         """Return (finding, impact, resolution) for a cross-reference record.
 
-        If NemoClaw is enabled and available, calls the aegis-crossref agent to
+        If OpenClaw cloud is enabled and available, calls the aegis-crossref agent to
         produce richer narrative text. Falls back to ICS-format template strings
-        on failure or when NemoClaw is disabled (default).
+        on failure or when OpenClaw is disabled (default).
         """
         risk_type: str = record.risk_type  # type: ignore[attr-defined]
         direction: str = record.direction  # type: ignore[attr-defined]
@@ -337,12 +403,12 @@ class Scout:
         )
 
         try:
-            from ..services.nemoclaw_client import build_crossref_payload, get_nemoclaw_client
-            nc = await get_nemoclaw_client()
+            from ..services.openclaw_client import build_crossref_prompt, get_openclaw_client
+            nc = await get_openclaw_client()
             if nc is None:
                 return template_finding, template_impact, None
 
-            payload = build_crossref_payload(
+            prompt = build_crossref_prompt(
                 from_scout_id=record.scout_id,  # type: ignore[attr-defined]
                 to_scout_id=self.scout_id,
                 risk_type=record.risk_type,  # type: ignore[attr-defined]
@@ -352,7 +418,7 @@ class Scout:
                 to_building_name=self.building.name,
                 estimated_range_m=record.estimated_range_m,  # type: ignore[attr-defined]
             )
-            result = await nc.call_agent("aegis-crossref", payload)
+            result = await nc.call_agent("aegis-crossref", prompt)
             if result is None:
                 return template_finding, template_impact, None
 
@@ -361,8 +427,76 @@ class Scout:
             resolution = result.get("resolution")
             return finding, impact, str(resolution) if resolution else None
         except Exception as exc:
-            logger.warning("NemoClaw crossref enrichment failed: %s", exc)
+            logger.warning("OpenClaw crossref enrichment failed: %s", exc)
             return template_finding, template_impact, None
+
+    async def _auto_survey(self) -> None:
+        """Background task: walk remaining viewpoints after initial arrival.
+
+        Calls ``advance()`` in a loop so every building face is analysed and
+        emitted as a ``scout_report``.  Each cycle also queries SharedState for
+        cross-references, increasing the probability that hazards from peer
+        scouts are picked up and broadcast before the commander sends questions.
+        """
+        try:
+            while True:
+                report = await self.advance()
+                if report is None:
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Scout %s: auto_survey failed", self.scout_id)
+
+    async def _on_peer_risk(self, record: object) -> None:
+        """Push notification: a peer scout just persisted new external-risk findings.
+
+        Called by SharedState immediately when ``write_findings`` is invoked by
+        another scout.  If the new risk record's projected radius reaches this
+        building, emits a ``cross_reference`` WebSocket message right away —
+        without waiting for the next ``analyze_viewpoint`` cycle.
+        """
+        if record.scout_id == self.scout_id:  # type: ignore[attr-defined]
+            return
+
+        dist = _haversine_m(
+            record.origin_lat,  # type: ignore[attr-defined]
+            record.origin_lng,  # type: ignore[attr-defined]
+            self.building.lat,
+            self.building.lng,
+        )
+        if dist > record.estimated_range_m:  # type: ignore[attr-defined]
+            return
+
+        key = (record.scout_id, self.scout_id)  # type: ignore[attr-defined]
+        if key in self._emitted_cross_refs:
+            return
+        # Guard against concurrent duplicate emissions (asyncio cooperative, but safe).
+        self._emitted_cross_refs.add(key)
+
+        try:
+            finding, impact, resolution = await self._enrich_cross_ref(record)
+            await self._emit(
+                CrossReference(
+                    from_scout=record.scout_id,  # type: ignore[attr-defined]
+                    to_scout=self.scout_id,
+                    finding=finding,
+                    impact=impact,
+                    resolution=resolution,
+                ).model_dump()
+            )
+            logger.info(
+                "Scout %s: push cross-ref from %s — %s",
+                self.scout_id,
+                record.scout_id,  # type: ignore[attr-defined]
+                record.risk_type,  # type: ignore[attr-defined]
+            )
+        except Exception:
+            logger.exception(
+                "Scout %s: failed to emit push cross-ref from %s",
+                self.scout_id,
+                record.scout_id,  # type: ignore[attr-defined]
+            )
 
     def _build_system_prompt(
         self,

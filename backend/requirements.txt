@@ -7,3 +7,4 @@ pillow
 redis
 anthropic
 python-dotenv
+# openclaw-sdk removed — gateway is accessed via native ACP WebSocket protocol

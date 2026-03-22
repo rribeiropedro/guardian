@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import anthropic
@@ -77,7 +78,7 @@ async def analyze_image(
             "type": "text",
             "text": (
                 "Analyze this facade image according to the system prompt. "
-                "Return ONLY a JSON object matching the specified schema — no markdown, no commentary."
+                "Write your SITREP sentence first, then \"---\", then the JSON object."
             ),
         },
     ])
@@ -113,6 +114,109 @@ async def analyze_image(
             break
 
     return _fallback_analysis()
+
+
+async def analyze_image_stream(
+    image_bytes: bytes,
+    system_prompt: str,
+    on_chunk: Callable[[str], Awaitable[None]],
+    user_message: str | None = None,
+) -> VLMAnalysis:
+    """Streaming version of analyze_image.
+
+    Calls on_chunk with each text token as it arrives, then returns the
+    complete VLMAnalysis once streaming finishes.  Falls back to the
+    non-streaming path on any error so callers never regress.
+
+    Args:
+        image_bytes: Raw JPEG image data.
+        system_prompt: System prompt describing the analysis task.
+        on_chunk: Async callback invoked with each incremental text chunk.
+        user_message: Optional text prepended to the image in the user turn.
+    """
+    global _haiku_mode
+
+    image_b64 = base64.standard_b64encode(image_bytes).decode()
+
+    user_content: list[dict[str, Any]] = []
+    if user_message:
+        user_content.append({"type": "text", "text": user_message})
+    user_content.extend([
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": image_b64,
+            },
+        },
+        {
+            "type": "text",
+            "text": (
+                "Analyze this facade image according to the system prompt. "
+                "Write your SITREP sentence first, then \"---\", then the JSON object."
+            ),
+        },
+    ])
+
+    messages = [{"role": "user", "content": user_content}]
+    model = _HAIKU_MODEL if _haiku_mode else _SONNET_MODEL
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=get_settings().anthropic_api_key)
+        start = time.monotonic()
+
+        full_text = ""
+        # Buffer used to detect the "---" delimiter that separates the
+        # plain-English chat message from the JSON block.  Only tokens
+        # before the delimiter are forwarded to on_chunk so the frontend
+        # sees a human-readable message, not raw JSON.
+        _DELIM = "\n---"
+        _chat_buf = ""
+        _chat_done = False
+
+        async with client.messages.stream(
+            model=model,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=messages,
+        ) as stream:
+            async for chunk in stream.text_stream:
+                full_text += chunk
+                if _chat_done:
+                    continue
+                _chat_buf += chunk
+                idx = _chat_buf.find(_DELIM)
+                if idx != -1:
+                    # Emit everything before the delimiter, then stop.
+                    if idx > 0:
+                        await on_chunk(_chat_buf[:idx])
+                    _chat_done = True
+                else:
+                    # Hold back enough chars to catch a delimiter split
+                    # across chunk boundaries.
+                    hold = len(_DELIM) - 1
+                    if len(_chat_buf) > hold:
+                        await on_chunk(_chat_buf[:-hold])
+                        _chat_buf = _chat_buf[-hold:]
+
+        latency = time.monotonic() - start
+        if not _haiku_mode and latency > _LATENCY_THRESHOLD_S and get_settings().fallback_to_haiku:
+            logger.warning(
+                "Sonnet stream latency %.1fs exceeds threshold — switching to Haiku for this session",
+                latency,
+            )
+            _haiku_mode = True
+
+        try:
+            return _parse_vlm_response(full_text)
+        except _RetryableError as exc:
+            logger.warning("Stream parse failed, falling back to non-stream retry: %s", exc)
+            return await analyze_image(image_bytes, system_prompt, user_message=user_message)
+
+    except Exception as exc:
+        logger.warning("VLM streaming failed (%s), falling back to non-streaming", exc)
+        return await analyze_image(image_bytes, system_prompt, user_message=user_message)
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +389,11 @@ def build_system_prompt(
         "□ RED PLACARD: UNSAFE — specify imminent danger (collapse risk / gas / structural). "
         "   Post at ALL entrances. Define exclusion zone radius.\n"
         "\n"
-        "Return ONLY a valid JSON object. All text fields must use ICS plain-language — "
-        "specific, measurable, and actionable. No markdown, no commentary outside the JSON.\n"
+        "Begin your response with a single plain-English field radio message (1-2 sentences, "
+        "ICS language, no JSON). Start it with \"SITREP: \". "
+        "Then write \"---\" on its own line. "
+        "Then write the JSON object. All JSON text fields must use ICS plain-language — "
+        "specific, measurable, and actionable.\n"
         "{\n"
         '  "findings": [\n'
         '    {\n'

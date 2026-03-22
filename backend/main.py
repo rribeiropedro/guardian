@@ -399,7 +399,7 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
         calculate_ghost_route(start, target, **route_kwargs),
     )
 
-    # Emit immediately — frontend gets both routes without waiting for NemoClaw.
+    # Emit immediately — frontend gets both routes without waiting for the cloud agent.
     result = RouteResult(
         target_building_id=msg.building_id,
         waypoints=safe_waypoints,
@@ -408,9 +408,9 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
     )
     await manager.send_personal_message(client_id, result.model_dump())
 
-    # Fire background NemoClaw route analysis — does NOT block the WS handler.
+    # Fire background OpenClaw cloud route analysis — does NOT block the WS handler.
     # The agent emits an updated route_result with agent_validated=True if it
-    # finds a better path.  No message is emitted if NemoClaw is disabled.
+    # finds a better path.  No message is emitted if OpenClaw is disabled.
     zones = build_hazard_zones(
         buildings=hazard_buildings,
         shared_state_records=shared_state_records,
