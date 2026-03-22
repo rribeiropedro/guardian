@@ -20,7 +20,7 @@ from ..models.schemas import (
     VLMAnalysis,
 )
 from ..services import annotation, streetview, vlm as vlm_service
-from .state import _haversine_m, get_shared_state
+from .state import SharedState, _RiskRecord, _haversine_m, get_shared_state
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,12 @@ _DIRECTION_KEYWORDS: dict[str, list[str]] = {
     "SW": ["southwest", "south-west"],
 }
 
+# Cross-reference coordination defaults.
+_CROSSREF_SECTOR_COUNT = 3
+_CROSSREF_OVERLAP_BAND_M = 25
+_CROSSREF_BOUNDARY_CHECKPOINTS = 2
+_CROSSREF_SYNC_INTERVAL_S = 25
+
 
 class Scout:
     def __init__(
@@ -48,6 +54,7 @@ class Scout:
         magnitude: float,
         emit: Callable[[dict], Awaitable[None]],
         scenario_prompt: str = "",
+        shared_state: SharedState | None = None,
     ) -> None:
         self.scout_id = scout_id
         self.building = building
@@ -65,6 +72,9 @@ class Scout:
         self._emitted_cross_refs: set[tuple[str, str]] = set()
         # Background auto-survey task — kept so Coordinator can cancel it.
         self._survey_task: asyncio.Task | None = None
+        # Use the provided per-coordinator state; fall back to the module singleton
+        # for standalone tests that create Scout directly.
+        self._shared_state: SharedState = shared_state if shared_state is not None else get_shared_state()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -99,9 +109,9 @@ class Scout:
             )
             return
 
-        # Register push callback so this scout is immediately notified when any
-        # peer writes external-risk findings that reach this building's position.
-        get_shared_state().subscribe(self._on_peer_risk)
+        # Register push callback AFTER the viewpoints guard so we never leave
+        # a dangling subscription for a scout that never completes arrival.
+        self._shared_state.subscribe(self._on_peer_risk)
 
         await self._emit(
             ScoutDeployed(
@@ -140,6 +150,11 @@ class Scout:
         if self._survey_task and not self._survey_task.done():
             self._survey_task.cancel()
 
+    @property
+    def survey_task(self) -> asyncio.Task | None:
+        """Read-only accessor for the background survey task (used by Coordinator)."""
+        return self._survey_task
+
     async def analyze_viewpoint(self, viewpoint: ScoutViewpoint) -> ScoutReport:
         """Core analysis loop for a single viewpoint.
 
@@ -151,7 +166,7 @@ class Scout:
           5. Emit cross_reference messages for any newly-relevant nearby findings.
           6. Annotate image and return ScoutReport.
         """
-        state = get_shared_state()
+        state = self._shared_state
 
         cross_ref_context = state.format_cross_ref_context(
             self.building.lat,
@@ -268,7 +283,7 @@ class Scout:
             )
             self._current_image_bytes = image_bytes
 
-        state = get_shared_state()
+        state = self._shared_state
         cross_ref_context = state.format_cross_ref_context(
             self.building.lat, self.building.lng, exclude_scout_id=self.scout_id,
         )
@@ -354,19 +369,19 @@ class Scout:
 
         return result
 
-    async def _enrich_cross_ref(self, record: object) -> tuple[str, str, str | None]:
+    async def _enrich_cross_ref(self, record: _RiskRecord) -> tuple[str, str, str | None]:
         """Return (finding, impact, resolution) for a cross-reference record.
 
         If OpenClaw cloud is enabled and available, calls the aegis-crossref agent to
         produce richer narrative text. Falls back to ICS-format template strings
         on failure or when OpenClaw is disabled (default).
         """
-        risk_type: str = record.risk_type  # type: ignore[attr-defined]
-        direction: str = record.direction  # type: ignore[attr-defined]
-        range_m: float = record.estimated_range_m  # type: ignore[attr-defined]
-        from_building: str = getattr(record, "building_name", record.building_id)  # type: ignore[attr-defined]
+        risk_type: str = record.risk_type
+        direction: str = record.direction
+        range_m: float = record.estimated_range_m
+        from_building: str = record.building_name or record.building_id
 
-        from_callsign = f"SCOUT-{record.scout_id.upper()}"  # type: ignore[attr-defined]
+        from_callsign = f"SCOUT-{record.scout_id.upper()}"
         to_callsign = f"SCOUT-{self.scout_id.upper()}"
 
         # Determine if this hazard migrates underground (gas/chemical follow utility corridors)
@@ -377,22 +392,26 @@ class Scout:
             migration_detail = (
                 f"Hazard propagates via underground utility corridors — exposure not limited to line-of-sight. "
                 f"Monitor foundation penetrations, storm drain access, and manholes within {range_m:.0f}m "
-                f"before committing any rescue assets."
+                f"before committing any rescue assets. "
+                f"Overlap band {_CROSSREF_OVERLAP_BAND_M}m in effect for sector handoff."
             )
             resolution_text = (
                 f"Coordinate with {from_callsign} for real-time LEL readings. "
                 f"Establish {range_m:.0f}m exclusion zone — no entry until utility confirms shut-off "
                 f"and atmospheric monitoring reads below 10% LEL. All units hold staging positions "
-                f"pending Utilities notification. Safety Officer notification required."
+                f"pending Utilities notification. Safety Officer notification required. "
+                f"Use boundary checkpoints (x{_CROSSREF_BOUNDARY_CHECKPOINTS}) to confirm clearance."
             )
         else:
             migration_detail = (
                 f"Direct-exposure hazard, {range_m:.0f}m radius. "
-                f"Evaluate shared approach corridor and exposure zone prior to any advance."
+                f"Evaluate shared approach corridor and exposure zone prior to any advance. "
+                f"Overlap band {_CROSSREF_OVERLAP_BAND_M}m in effect."
             )
             resolution_text = (
                 f"Stage minimum {range_m:.0f}m from shared boundary with {from_building}. "
-                f"Confirm clearance with {from_callsign} before committing assets to {direction} corridor."
+                f"Confirm clearance with {from_callsign} before committing assets to {direction} corridor. "
+                f"Sync every {_CROSSREF_SYNC_INTERVAL_S}s until resolved."
             )
 
         template_finding = (
@@ -403,7 +422,10 @@ class Scout:
             f"BE ADVISED — {to_callsign} sector ({self.building.name}) lies within {risk_type} "
             f"hazard projection from {from_callsign} sector ({from_building}), {range_m:.0f}m radius. "
             f"{direction} approach corridor COMPROMISED. "
-            f"Requesting utility coordination and Safety Officer notification. Standby for updated access assessment."
+            f"Requesting utility coordination and Safety Officer notification. "
+            f"Overlap band {_CROSSREF_OVERLAP_BAND_M}m active; acknowledge handoff. "
+            f"Sector plan: {_CROSSREF_SECTOR_COUNT} scouts in rotation. "
+            f"Standby for updated access assessment."
         )
 
         try:
@@ -413,14 +435,14 @@ class Scout:
                 return template_finding, template_impact, None
 
             prompt = build_crossref_prompt(
-                from_scout_id=record.scout_id,  # type: ignore[attr-defined]
+                from_scout_id=record.scout_id,
                 to_scout_id=self.scout_id,
-                risk_type=record.risk_type,  # type: ignore[attr-defined]
-                direction=record.direction,  # type: ignore[attr-defined]
-                from_building_id=record.building_id,  # type: ignore[attr-defined]
+                risk_type=record.risk_type,
+                direction=record.direction,
+                from_building_id=record.building_id,
                 from_building_name=from_building,
                 to_building_name=self.building.name,
-                estimated_range_m=record.estimated_range_m,  # type: ignore[attr-defined]
+                estimated_range_m=record.estimated_range_m,
             )
             result = await nc.call_agent("aegis-crossref", prompt)
             if result is None:
@@ -452,7 +474,7 @@ class Scout:
         except Exception:
             logger.exception("Scout %s: auto_survey failed", self.scout_id)
 
-    async def _on_peer_risk(self, record: object) -> None:
+    async def _on_peer_risk(self, record: _RiskRecord) -> None:
         """Push notification: a peer scout just persisted new external-risk findings.
 
         Called by SharedState immediately when ``write_findings`` is invoked by
@@ -460,19 +482,19 @@ class Scout:
         building, emits a ``cross_reference`` WebSocket message right away —
         without waiting for the next ``analyze_viewpoint`` cycle.
         """
-        if record.scout_id == self.scout_id:  # type: ignore[attr-defined]
+        if record.scout_id == self.scout_id:
             return
 
         dist = _haversine_m(
-            record.origin_lat,  # type: ignore[attr-defined]
-            record.origin_lng,  # type: ignore[attr-defined]
+            record.origin_lat,
+            record.origin_lng,
             self.building.lat,
             self.building.lng,
         )
-        if dist > record.estimated_range_m:  # type: ignore[attr-defined]
+        if dist > record.estimated_range_m:
             return
 
-        key = (record.scout_id, self.scout_id)  # type: ignore[attr-defined]
+        key = (record.scout_id, self.scout_id)
         if key in self._emitted_cross_refs:
             return
         # Guard against concurrent duplicate emissions (asyncio cooperative, but safe).
@@ -482,7 +504,7 @@ class Scout:
             finding, impact, resolution = await self._enrich_cross_ref(record)
             await self._emit(
                 CrossReference(
-                    from_scout=record.scout_id,  # type: ignore[attr-defined]
+                    from_scout=record.scout_id,
                     to_scout=self.scout_id,
                     finding=finding,
                     impact=impact,
@@ -492,14 +514,14 @@ class Scout:
             logger.info(
                 "Scout %s: push cross-ref from %s — %s",
                 self.scout_id,
-                record.scout_id,  # type: ignore[attr-defined]
-                record.risk_type,  # type: ignore[attr-defined]
+                record.scout_id,
+                record.risk_type,
             )
         except Exception:
             logger.exception(
                 "Scout %s: failed to emit push cross-ref from %s",
                 self.scout_id,
-                record.scout_id,  # type: ignore[attr-defined]
+                record.scout_id,
             )
 
     def _build_system_prompt(

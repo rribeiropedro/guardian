@@ -180,6 +180,16 @@ class ErrorMessage(MessageBase):
     message: str
 
 
+class ScoutsConcluded(MessageBase):
+    """Emitted by the coordinator once all auto-deployed scouts have finished
+    their arrival analysis AND background auto-survey.  The frontend should
+    use this as the trigger to automatically request the route walkthrough for
+    the highest-priority building — ensuring the route agent has the richest
+    possible hazard data from all scout findings baked into SharedState."""
+    type: Literal["scouts_concluded"] = "scouts_concluded"
+    target_building_id: str  # highest-priority building — auto-route target
+
+
 # ----------------------------
 # Frontend -> Server messages
 # ----------------------------
@@ -219,4 +229,5 @@ ServerMessage = (
     | AgentStreamChunk
     | AgentStreamEnd
     | ErrorMessage
+    | ScoutsConcluded
 )

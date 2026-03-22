@@ -10,6 +10,7 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+# Leading underscore signals internal use; exported for type annotations in scout.py.
 @dataclass
 class _RiskRecord:
     scout_id: str
@@ -136,8 +137,9 @@ class SharedState:
             return ""
 
         lines = [
-            "INTER-SECTOR HAZARD ADVISORY — received from adjacent sector scouts:",
-            "Account for these hazards in your assessment and flag any cascading risk.",
+            "INTER-SECTOR HAZARD ADVISORY — live intelligence from overlapping sector scouts:",
+            "These findings are from peer scouts deployed SIMULTANEOUSLY in adjacent overlapping zones.",
+            "Your sector and theirs share a 25m boundary band — hazards crossing that band affect BOTH teams.",
         ]
         for r in nearby:
             # Classify migration risk — gas/chemical follow utility corridors,
@@ -146,19 +148,24 @@ class SharedState:
             is_underground = any(t in r.risk_type.lower() for t in _UNDERGROUND_TYPES)
             migration_note = (
                 "Hazard migrates via underground utility corridors — not limited to line-of-sight. "
-                "Air-monitor foundation penetrations and manholes within radius."
+                "Air-monitor foundation penetrations and manholes within radius. "
+                "Coordinate exclusion zone with the reporting scout before any entry."
                 if is_underground
-                else "Assess shared approach corridor and exposure zone before committing rescue assets."
+                else "Assess shared approach corridor and exposure zone before committing rescue assets. "
+                "Confirm clearance with the reporting scout at the overlap boundary."
             )
             lines.append(
-                f"  ⚠ Scout {r.scout_id} | {r.building_name}: CONFIRMED {r.risk_type} hazard "
+                f"  ⚠ SCOUT-{r.scout_id.upper()} | {r.building_name}: CONFIRMED {r.risk_type} hazard "
                 f"projecting {r.direction}, ~{r.estimated_range_m:.0f}m radius. "
-                f"This structure is within the projected zone. {migration_note}"
+                f"This structure lies within the projected zone. {migration_note}"
             )
 
         lines.append(
-            "ACTION: Explicitly report in external_risks any hazard from THIS building "
-            "that may compound with the above advisories toward adjacent sectors."
+            "REQUIRED ACTIONS:\n"
+            "  1. Acknowledge each advisory above in your recommended_action field.\n"
+            "  2. Report in external_risks ANY hazard from THIS building that compounds with the "
+            "above advisories or crosses the 25m overlap band toward adjacent sectors.\n"
+            "  3. If overlap band is affected, explicitly name the peer scout to coordinate with."
         )
         return "\n".join(lines)
 
