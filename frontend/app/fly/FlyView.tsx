@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { planTacticalRoute } from "../_lib/routePlanner";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 const TRIAGE_HEX = {
@@ -86,6 +85,10 @@ export default function FlyView({
   });
   const [active, setActive] = useState(false);
   const [hint, setHint] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [backendWaypoints, setBackendWaypoints] = useState<
+    Array<{ lat: number; lng: number; hazard?: { type: string; label: string; color: string } }> | null
+  >(null);
 
   const loop = useCallback(() => {
     const step = (now: number) => {
@@ -425,35 +428,9 @@ export default function FlyView({
         hoverPopupRef.current = null;
       });
 
-      // Kick off async route calculation
-      if (triageBuildings.length >= 2) {
-        planTacticalRoute(triageBuildings, TOKEN).then((result) => {
-          if (!result || !mapRef.current) return;
-          const routeSrc = mapRef.current.getSource("tactical-route") as mapboxgl.GeoJSONSource | undefined;
-          routeSrc?.setData({
-            type: "FeatureCollection",
-            features: [{ type: "Feature", geometry: result.geometry, properties: {} }],
-          });
-          const stopSrc = mapRef.current.getSource("tactical-stops") as mapboxgl.GeoJSONSource | undefined;
-          stopSrc?.setData({
-            type: "FeatureCollection",
-            features: result.stops.map((s, i) => ({
-              type: "Feature" as const,
-              geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
-              properties: {
-                index: i + 1,
-                name: s.name,
-                color: s.color,
-                score: s.score,
-                height_m: s.height_m,
-                material: s.material,
-                damage_probability: s.damage_probability,
-                reason: s.reason,
-              },
-            })),
-          });
-        });
-      }
+      // Route is provided by backend agents — mark map as ready so the
+      // polling effect can render waypoints as soon as they arrive.
+      setMapLoaded(true);
 
       // Force a forward-looking initial pose (not at the ground) before controls activate.
       const initialState = stateRef.current;
@@ -563,6 +540,69 @@ export default function FlyView({
     };
   }, []);
 
+  // Poll sessionStorage for the agent-computed route written by CommandCenter
+  useEffect(() => {
+    const check = () => {
+      try {
+        const raw = sessionStorage.getItem("aegis_agent_route");
+        if (!raw) return false;
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBackendWaypoints(
+            parsed as Array<{ lat: number; lng: number; hazard?: { type: string; label: string; color: string } }>,
+          );
+          return true;
+        }
+      } catch { /* ignore */ }
+      return false;
+    };
+    if (check()) return; // already available on mount
+    const id = setInterval(() => { if (check()) clearInterval(id); }, 500);
+    return () => clearInterval(id);
+  }, []);
+
+  // Render the backend route onto the map once both map and waypoints are ready
+  useEffect(() => {
+    if (!mapLoaded || !backendWaypoints || !mapRef.current) return;
+    const map = mapRef.current;
+
+    const routeSrc = map.getSource("tactical-route") as mapboxgl.GeoJSONSource | undefined;
+    routeSrc?.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: backendWaypoints.map((wp) => [wp.lng, wp.lat]),
+          },
+          properties: {},
+        },
+      ],
+    });
+
+    // Use waypoints that carry hazard annotations as stop dots
+    const hazardStops = backendWaypoints.filter((wp) => wp.hazard);
+    const stopSrc = map.getSource("tactical-stops") as mapboxgl.GeoJSONSource | undefined;
+    stopSrc?.setData({
+      type: "FeatureCollection",
+      features: hazardStops.map((wp, i) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [wp.lng, wp.lat] },
+        properties: {
+          index: i + 1,
+          name: wp.hazard!.label,
+          color: hazardTypeToTriageColor(wp.hazard!.type),
+          score: 4,
+          height_m: 0,
+          material: "—",
+          damage_probability: 0,
+          reason: wp.hazard!.label,
+        },
+      })),
+    });
+  }, [mapLoaded, backendWaypoints]);
+
   return (
     <div className="fixed inset-0 bg-[#0a0a0f]">
       <style>{`.aegis-stop-popup .mapboxgl-popup-content{background:transparent;padding:0;box-shadow:none}.aegis-stop-popup .mapboxgl-popup-tip{display:none}`}</style>
@@ -590,6 +630,19 @@ export default function FlyView({
           {locationName || "Selected location"} · {startLat.toFixed(5)},{" "}
           {startLng.toFixed(5)}
         </div>
+
+        {/* Route status — shows while agents are computing, disappears once route lands */}
+        {!backendWaypoints ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/20 bg-[rgba(8,10,18,0.88)] backdrop-blur-md">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-400 arriving-pulse" />
+            <span className="text-xs font-mono text-green-400">Computing agent route…</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 backdrop-blur-md pointer-events-none">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+            <span className="text-xs font-mono text-green-400">AGENT ROUTE READY</span>
+          </div>
+        )}
       </div>
 
       {active && (
@@ -614,6 +667,17 @@ export default function FlyView({
       )}
     </div>
   );
+}
+
+function hazardTypeToTriageColor(type: string): string {
+  switch (type) {
+    case "blocked": return "RED";
+    case "overhead": return "ORANGE";
+    case "medical": return "RED";
+    case "turn": return "YELLOW";
+    case "arrival": return "GREEN";
+    default: return "ORANGE";
+  }
 }
 
 function toMarkerFeature(
