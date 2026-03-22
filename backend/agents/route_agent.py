@@ -529,30 +529,77 @@ ROUTE_AGENT_TOOL_DEFINITIONS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 def _build_agent_prompt(ctx: RouteAgentContext) -> str:
+    """Build the full task prompt for the OpenClaw cloud aegis-route agent.
+
+    All route context is serialized into the prompt so the cloud agent can
+    reason over it without calling back to our server.
+    """
+    import dataclasses
+    import json as _json
+
     target = ctx.target_building
     start_lat, start_lng = ctx.start
     target_lat, target_lng = _centroid(target.footprint)
     straight_dist = _haversine_m(start_lat, start_lng, target_lat, target_lng)
 
+    # Serialize current waypoints (Pydantic → dict, drop pano_id to save tokens).
+    safe_wps = [
+        {"lat": w.lat, "lng": w.lng,
+         "hazard": w.hazard.model_dump() if w.hazard else None}
+        for w in ctx.current_waypoints
+    ]
+    ghost_wps = [
+        {"lat": w.lat, "lng": w.lng,
+         "hazard": w.hazard.model_dump() if w.hazard else None}
+        for w in ctx.ghost_waypoints
+    ]
+
+    # Serialize hazard zones (dataclasses).
+    zones_data = []
+    for z in ctx.zones:
+        d = dataclasses.asdict(z)
+        # Replace math.inf with a large finite sentinel for JSON compatibility.
+        import math
+        d["cost_multiplier"] = 9999.0 if math.isinf(d.get("cost_multiplier", 0)) else d["cost_multiplier"]
+        zones_data.append(d)
+
+    context_json = _json.dumps({
+        "start": {"lat": start_lat, "lng": start_lng},
+        "target": {
+            "name": target.name,
+            "color": target.color,
+            "damage_probability": round(target.damage_probability, 3),
+            "lat": target_lat,
+            "lng": target_lng,
+        },
+        "straight_line_distance_m": round(straight_dist),
+        "magnitude": ctx.magnitude,
+        "epicenter": {"lat": ctx.epicenter_lat, "lng": ctx.epicenter_lng},
+        "safe_route_waypoints": safe_wps,
+        "ghost_route_waypoints": ghost_wps,
+        "hazard_zones": zones_data,
+    }, indent=2)
+
     return (
-        f"You are an earthquake emergency route planner. "
-        f"A rescue team needs to reach {target.name} ({target.color} triage, "
-        f"damage probability {target.damage_probability:.0%}) from "
-        f"({start_lat:.5f}, {start_lng:.5f}). "
-        f"Straight-line distance: {straight_dist:.0f}m. "
-        f"Earthquake magnitude: {ctx.magnitude}. "
-        f"Epicenter at ({ctx.epicenter_lat:.5f}, {ctx.epicenter_lng:.5f}). "
-        f"\n\nA Dijkstra-based safe route has already been computed. "
-        f"Your job is to verify it and improve it if possible using the provided tools. "
-        f"\n\nSteps:"
-        f"\n1. Call get_route_summary to understand the current route."
-        f"\n2. For any dangerous waypoints, call evaluate_waypoint_safety to confirm."
-        f"\n3. For dangerous segments, call get_segment_hazards."
-        f"\n4. If you find a better path, call suggest_detour for each problematic segment."
-        f"\n5. Call compare_routes to confirm your proposed path is safer."
-        f"\n6. Return your final route as a JSON object with key 'refined_waypoints': "
-        f"[{{lat, lng}}, ...] and 'reasoning': string. "
-        f"If the current route is already optimal, return the same waypoints with reasoning."
+        "You are an earthquake emergency route planner for the Aegis-Net ICS platform.\n\n"
+        "A Dijkstra hazard-avoidance algorithm has computed a safe route. "
+        "Review it and return either the confirmed route or an improved one.\n\n"
+        f"## Route Context\n{context_json}\n\n"
+        "## Instructions\n"
+        "1. Examine the safe_route_waypoints and identify any with non-null hazard entries.\n"
+        "2. Check whether any waypoints sit inside a hazard_zone "
+        "(distance from waypoint to zone center < radius_m).\n"
+        "3. If dangerous waypoints exist, propose alternative coordinates that stay outside "
+        "all hazard_zones.\n"
+        "4. Only change the route if your proposed path avoids hazards meaningfully better. "
+        "Use your judgment — a 5%+ improvement in hazard exposure is worth a detour.\n\n"
+        "## Output\n"
+        "Return ONLY a valid JSON object — no markdown, no commentary:\n"
+        "{\n"
+        '  "refined_waypoints": [{"lat": <float>, "lng": <float>}, ...],\n'
+        '  "reasoning": "<one sentence: what you found and what you changed>"\n'
+        "}\n\n"
+        "If the original route is already safe, return it unchanged with reasoning confirming it."
         + (f"\n\nScenario context: {ctx.scenario_prompt}" if ctx.scenario_prompt else "")
     )
 
@@ -561,11 +608,11 @@ async def run_background_route_analysis(
     ctx: RouteAgentContext,
     emit: Callable[[dict], Awaitable[None]],
 ) -> None:
-    """Background coroutine: run NemoClaw route agent, emit refined route_result.
+    """Background coroutine: run OpenClaw cloud route agent, emit refined route_result.
 
     This is fire-and-forget from _handle_request_route.  It:
-      1. Connects to NemoClaw (returns silently if disabled / unreachable).
-      2. Runs the aegis-route agent with tool access.
+      1. Connects to the OpenClaw cloud gateway (returns silently if disabled).
+      2. Spawns the aegis-route sub-agent with full route context in the task.
       3. Parses the agent's refined waypoint list.
       4. Fetches pano IDs for any new waypoints.
       5. Emits an updated route_result with agent_validated=True if the refined
@@ -575,13 +622,12 @@ async def run_background_route_analysis(
     emitted remains the live route for the frontend.
     """
     try:
-        from ..services.nemoclaw_client import get_nemoclaw_client
-        nc = await get_nemoclaw_client()
+        from ..services.openclaw_client import get_openclaw_client
+        nc = await get_openclaw_client()
         if nc is None:
-            logger.debug("RouteAgent: NemoClaw disabled — skipping background analysis")
+            logger.debug("RouteAgent: OpenClaw cloud disabled — skipping background analysis")
             return
 
-        tools = RouteAgentTools(ctx)
         prompt = _build_agent_prompt(ctx)
 
         logger.info(
@@ -590,16 +636,9 @@ async def run_background_route_analysis(
             len(ctx.current_waypoints),
         )
 
-        # Call the NemoClaw agent with tool access.
-        # TODO: switch to nc.call_agent_with_tools() once the NemoClaw SDK
-        #       implements agentic tool-calling.  For now falls back to the
-        #       single-turn call with tool definitions in the payload.
-        result = await nc.call_agent_with_tools(
-            agent_name="aegis-route",
-            prompt=prompt,
-            tool_definitions=ROUTE_AGENT_TOOL_DEFINITIONS,
-            tool_dispatcher=tools.dispatch,
-            max_turns=MAX_TOOL_TURNS,
+        result = await nc.call_agent(
+            agent_id="aegis-route",
+            task=prompt,
         )
 
         if result is None:

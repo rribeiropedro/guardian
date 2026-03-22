@@ -15,10 +15,10 @@ class Settings(BaseModel):
     mapbox_token: str = ""
     demo_mode: bool = False
     fallback_to_haiku: bool = True
-    # NemoClaw optional augment (Tasks 7–8). Set NEMOCLAW_ENABLED=true to activate.
-    nemoclaw_enabled: bool = False
-    nemoclaw_gateway_ws_url: str = ""
-    nemoclaw_api_key: str = ""
+    # OpenClaw cloud sub-agent augment (Tasks 7–8). Set OPENCLAW_ENABLED=true to activate.
+    openclaw_enabled: bool = False
+    openclaw_gateway_url: str = ""   # e.g. https://<your-cloud>.openclaw.ai
+    openclaw_api_key: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -31,7 +31,7 @@ def get_settings() -> Settings:
         mapbox_token=os.getenv("MAPBOX_TOKEN", ""),
         demo_mode=os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes"),
         fallback_to_haiku=os.getenv("FALLBACK_TO_HAIKU", "true").lower() in ("1", "true", "yes"),
-        nemoclaw_enabled=os.getenv("NEMOCLAW_ENABLED", "").lower() in ("1", "true", "yes"),
-        nemoclaw_gateway_ws_url=os.getenv("NEMOCLAW_GATEWAY_WS_URL", ""),
-        nemoclaw_api_key=os.getenv("NEMOCLAW_API_KEY", ""),
+        openclaw_enabled=os.getenv("OPENCLAW_ENABLED", "").lower() in ("1", "true", "yes"),
+        openclaw_gateway_url=os.getenv("OPENCLAW_GATEWAY_URL", ""),
+        openclaw_api_key=os.getenv("OPENCLAW_API_KEY", ""),
     )

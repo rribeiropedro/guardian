@@ -150,9 +150,29 @@ class RouteResult(MessageBase):
     # ghost waypoint show exactly WHY that path is dangerous post-earthquake.
     # Empty until the background route agent completes its analysis.
     ghost_waypoints: list[Waypoint] = []
-    # True once the NemoClaw route agent has validated / refined the waypoints.
+    # True once the OpenClaw cloud route agent has validated / refined the waypoints.
     # The frontend can show a "route finalized" indicator when this flips.
     agent_validated: bool = False
+
+
+class AgentStreamStart(MessageBase):
+    type: Literal["agent_stream_start"] = "agent_stream_start"
+    scout_id: str
+    building_id: str
+
+
+class AgentStreamChunk(MessageBase):
+    type: Literal["agent_stream_chunk"] = "agent_stream_chunk"
+    scout_id: str
+    building_id: str
+    chunk: str
+    sequence: int
+
+
+class AgentStreamEnd(MessageBase):
+    type: Literal["agent_stream_end"] = "agent_stream_end"
+    scout_id: str
+    building_id: str
 
 
 class ErrorMessage(MessageBase):
@@ -195,5 +215,8 @@ ServerMessage = (
     | ScoutReport
     | CrossReference
     | RouteResult
+    | AgentStreamStart
+    | AgentStreamChunk
+    | AgentStreamEnd
     | ErrorMessage
 )

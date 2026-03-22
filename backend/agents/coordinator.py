@@ -135,6 +135,9 @@ class Coordinator:
             if not task.done():
                 task.cancel()
                 cancelled += 1
+        # Also cancel any background auto-survey tasks spawned by scouts.
+        for scout in self.scouts.values():
+            scout.cancel_survey()
         self._tasks.clear()
         self.scouts.clear()
         self._name_counter = 0

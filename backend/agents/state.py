@@ -1,8 +1,13 @@
 """Shared in-memory state for cross-reference detection between scouts."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -27,9 +32,12 @@ class SharedState:
 
     def __init__(self) -> None:
         self._records: list[_RiskRecord] = []
+        # Callbacks registered by active scouts to receive push notifications
+        # when another scout writes new external-risk findings.
+        self._subscribers: list[Callable[[object], Awaitable[None]]] = []
 
     def reset_for_scenario(self, scenario_id: str | None = None) -> None:
-        """Clear all risk records.
+        """Clear all risk records and push subscribers.
 
         Call this at the start of each new scenario so stale findings from a
         prior run don't bleed into cross-reference queries for a new client.
@@ -38,6 +46,23 @@ class SharedState:
         one singleton, scoped by reset boundary).
         """
         self._records.clear()
+        self._subscribers.clear()
+
+    def subscribe(self, callback: Callable[[object], Awaitable[None]]) -> None:
+        """Register a coroutine callback to be called when new risk records are written.
+
+        The callback receives the new ``_RiskRecord`` as its only argument.
+        Use this for push-based cross-reference notifications between scouts.
+        """
+        if callback not in self._subscribers:
+            self._subscribers.append(callback)
+
+    def unsubscribe(self, callback: Callable[[object], Awaitable[None]]) -> None:
+        """Remove a previously registered push callback."""
+        try:
+            self._subscribers.remove(callback)
+        except ValueError:
+            pass
 
     def write_findings(
         self,
@@ -48,20 +73,29 @@ class SharedState:
         external_risks: list,  # list[ExternalRisk] — typed as list to avoid circular import
         building_name: str = "",
     ) -> None:
-        """Persist external risks from a completed VLM analysis."""
+        """Persist external risks and push-notify all subscribed peer scouts."""
         for risk in external_risks:
-            self._records.append(
-                _RiskRecord(
-                    scout_id=scout_id,
-                    building_id=building_id,
-                    building_name=building_name or building_id,
-                    origin_lat=lat,
-                    origin_lng=lng,
-                    risk_type=risk.type,
-                    direction=risk.direction,
-                    estimated_range_m=risk.estimated_range_m,
-                )
+            record = _RiskRecord(
+                scout_id=scout_id,
+                building_id=building_id,
+                building_name=building_name or building_id,
+                origin_lat=lat,
+                origin_lng=lng,
+                risk_type=risk.type,
+                direction=risk.direction,
+                estimated_range_m=risk.estimated_range_m,
             )
+            self._records.append(record)
+            # Push-notify peer scouts immediately so they can emit cross_reference
+            # messages without waiting for their next analyze_viewpoint call.
+            if self._subscribers:
+                try:
+                    loop = asyncio.get_running_loop()
+                    for cb in list(self._subscribers):
+                        loop.create_task(cb(record))
+                except RuntimeError:
+                    # No running event loop — synchronous test context; skip push.
+                    pass
 
     def query_nearby(
         self,
