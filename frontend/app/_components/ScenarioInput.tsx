@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { WsStatus } from '../_lib/useWebSocket'
 
 const PRESET_PROMPT = '7.2 magnitude earthquake, Virginia Tech campus, Blacksburg VA'
-const SCENARIO_RADIUS_M = 250
+const SCENARIO_RADIUS_M = 500
 
 interface Props {
   wsStatus: WsStatus
