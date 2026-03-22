@@ -133,7 +133,7 @@ export default function AgentCommsPanel({ scouts, feed, onMessage, onRequestRout
         {/* Content area */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {activeTab === 'ALL' ? (
-            <UnifiedFeed feed={feed} scouts={scouts} onMessage={onMessage} />
+            <UnifiedFeed feed={feed} />
           ) : activeScout ? (
             <ScoutPanel
               scout={activeScout}
@@ -193,39 +193,18 @@ function TabButton({ label, active, onClick, status, color }: TabProps) {
 
 function UnifiedFeed({
   feed,
-  scouts,
-  onMessage,
 }: {
   feed: AgentFeedEntry[]
-  scouts: Scout[]
-  onMessage: (scoutId: string, message: string) => void
 }) {
   const feedEndRef = useRef<HTMLDivElement>(null)
-  const [targetScout, setTargetScout] = useState('')
-  const [input, setInput] = useState('')
-
-  // Keep target in sync when scouts change
-  useEffect(() => {
-    if (scouts.length > 0 && !scouts.find(s => s.scout_id === targetScout)) {
-      setTargetScout(scouts[0].scout_id)
-    }
-  }, [scouts, targetScout])
 
   // Auto-scroll
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [feed])
 
-  function handleSend() {
-    const text = input.trim()
-    if (!text || !targetScout) return
-    onMessage(targetScout, text)
-    setInput('')
-  }
-
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Message feed */}
       <div className="flex-1 overflow-y-auto chat-scroll px-3 py-3 space-y-2.5">
         {feed.length === 0 && (
           <div className="text-center text-[11px] text-slate-600 font-mono mt-10 arriving-pulse">
@@ -239,54 +218,6 @@ function UnifiedFeed({
 
         <div ref={feedEndRef} />
       </div>
-
-      {/* Commander input */}
-      {scouts.length > 0 && (
-        <div className="border-t border-white/[0.07] p-3 shrink-0">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] font-mono text-slate-600">DIRECT TO</span>
-            <select
-              value={targetScout}
-              onChange={e => setTargetScout(e.target.value)}
-              className="text-[10px] font-mono bg-white/[0.05] border border-white/10 rounded
-                px-2 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
-            >
-              {scouts.map(s => (
-                <option key={s.scout_id} value={s.scout_id}>
-                  SCOUT-{s.scout_id.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-end gap-2">
-            <textarea
-              className="flex-1 resize-none bg-white/[0.05] rounded-lg px-3 py-2 text-xs font-mono
-                text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1
-                focus:ring-blue-500/40 leading-relaxed"
-              rows={2}
-              placeholder="Issue directive… (Enter to send)"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSend()
-                }
-              }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || !targetScout}
-              className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700
-                disabled:text-slate-500 text-white transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -122,6 +122,12 @@ export interface ErrorMsg {
   message: string
 }
 
+export interface ScoutsConcludedMsg {
+  type: 'scouts_concluded'
+  /** Highest-priority building id — the auto-route target. */
+  target_building_id: string
+}
+
 export type ServerMessage =
   | TriageResultMsg
   | ScoutDeployedMsg
@@ -132,6 +138,7 @@ export type ServerMessage =
   | AgentStreamChunkMsg
   | AgentStreamEndMsg
   | ErrorMsg
+  | ScoutsConcludedMsg
 
 // ── Frontend → Server messages ────────────────────────────────────────────────
 

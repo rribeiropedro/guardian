@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { WsStatus } from '../_lib/useWebSocket'
 
 const PRESET_PROMPT = '7.2 magnitude earthquake, epicenter at The Pylons, 2:30 PM Tuesday'
+const SCENARIO_RADIUS_M = 250
 
 interface Props {
   wsStatus: WsStatus
@@ -34,7 +35,7 @@ export default function ScenarioInput({
 
   function handleSubmit() {
     const text = prompt.trim() || PRESET_PROMPT
-    onSubmit(text, 1000)
+    onSubmit(text, SCENARIO_RADIUS_M)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
