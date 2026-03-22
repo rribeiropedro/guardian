@@ -106,16 +106,17 @@ export default function LandingPage() {
   return (
     <div
       ref={rootRef}
-      className={`${playfair.variable} ${spaceGrotesk.variable} bg-[#0a0a0f] text-slate-200 flex flex-col overflow-y-auto h-full page-enter`}
+      className={`${playfair.variable} ${spaceGrotesk.variable} text-slate-200 flex flex-col overflow-y-auto h-full page-enter`}
+      style={{ background: "radial-gradient(ellipse 70% 50% at 50% 50%, #0d1424 0%, #0a0a0f 70%)" }}
     >
       {/* ── Logo ── */}
       <div className="px-8 pt-7 pb-0 flex items-center gap-2.5 shrink-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/logo.png"
+          src="/helmet-logo.svg"
           alt="GroundZero"
-          className="w-8 h-8 rounded-md object-cover"
-          style={{ filter: "drop-shadow(0 0 8px rgba(249,115,22,0.55))" }}
+          className="w-8 h-8 object-contain"
+          style={{ filter: "drop-shadow(0 0 8px rgba(59,130,246,0.55))" }}
         />
         <span className="text-sm font-semibold tracking-widest text-slate-300 uppercase">
           GroundZero
@@ -145,8 +146,8 @@ export default function LandingPage() {
                 style={{
                   fontFamily: "var(--font-playfair)",
                   fontStyle: "italic",
-                  color: "#f97316",
-                  textShadow: "0 0 40px rgba(249,115,22,0.25)",
+                  color: "#3B82F6",
+                  textShadow: "0 0 40px rgba(59,130,246,0.25)",
                 }}
               >
                 precision
@@ -165,16 +166,16 @@ export default function LandingPage() {
               onClick={() => navigateTo("/command-center")}
               className="inline-flex items-center gap-3 px-7 py-3.5 text-sm font-semibold tracking-wide text-white transition-all"
               style={{
-                background: "linear-gradient(135deg, #f97316, #ea580c)",
-                boxShadow: "0 0 24px rgba(249,115,22,0.4), 0 0 0 1px rgba(249,115,22,0.2)",
+                background: "linear-gradient(135deg, #3B82F6, #2563EB)",
+                boxShadow: "0 0 24px rgba(59,130,246,0.4), 0 0 0 1px rgba(59,130,246,0.2)",
               }}
               onMouseEnter={(e) =>
                 (e.currentTarget.style.boxShadow =
-                  "0 0 36px rgba(249,115,22,0.6), 0 0 0 1px rgba(249,115,22,0.3)")
+                  "0 0 36px rgba(59,130,246,0.6), 0 0 0 1px rgba(59,130,246,0.3)")
               }
               onMouseLeave={(e) =>
                 (e.currentTarget.style.boxShadow =
-                  "0 0 24px rgba(249,115,22,0.4), 0 0 0 1px rgba(249,115,22,0.2)")
+                  "0 0 24px rgba(59,130,246,0.4), 0 0 0 1px rgba(59,130,246,0.2)")
               }
             >
               Enter Command Center
@@ -214,13 +215,13 @@ export default function LandingPage() {
           aria-label="Launch app"
         >
           <span
-            className="text-[9px] font-mono tracking-[0.25em] text-slate-600 group-hover:text-orange-400 transition-colors"
+            className="text-[9px] font-mono tracking-[0.25em] text-slate-600 group-hover:text-blue-400 transition-colors"
             style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
           >
             LAUNCH
           </span>
           <span
-            className="w-px flex-1 bg-slate-800 group-hover:bg-orange-500/40 transition-colors"
+            className="w-px flex-1 bg-slate-800 group-hover:bg-blue-500/40 transition-colors"
             style={{ height: 48 }}
           />
           {/* Animated chevrons */}
@@ -232,7 +233,7 @@ export default function LandingPage() {
                 height="8"
                 viewBox="0 0 12 8"
                 fill="none"
-                className="text-slate-600 group-hover:text-orange-400 transition-colors"
+                className="text-slate-600 group-hover:text-blue-400 transition-colors"
                 style={{
                   animation: `arrowFade 1.4s ease-in-out ${i * 0.18}s infinite`,
                   opacity: 0,
@@ -374,7 +375,7 @@ export default function LandingPage() {
                   Deploy scouts. Triage in real time.
                 </div>
               </div>
-              <span className="text-slate-500 group-hover:text-orange-400 transition-colors text-lg">
+              <span className="text-slate-500 group-hover:text-blue-400 transition-colors text-lg">
                 →
               </span>
             </button>
