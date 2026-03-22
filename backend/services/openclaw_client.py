@@ -34,6 +34,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Coordination defaults for cross-scout overlap strategy.
+_COORD_SECTOR_COUNT = 3
+_COORD_OVERLAP_BAND_M = 25
+_COORD_BOUNDARY_CHECKPOINTS = 2
+_COORD_SYNC_INTERVAL_S = 25
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -48,12 +54,15 @@ class OpenClawClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        # Persistent client — reuses the connection pool across calls instead
+        # of opening a new TCP connection for every agent invocation.
+        self._http = httpx.AsyncClient(headers=self._headers)
 
     async def call_agent(
         self,
         agent_id: str,
         task: str,
-        timeout: float = 120.0,
+        timeout: float = 60.0,
     ) -> dict[str, Any] | None:
         """Spawn a cloud sub-agent session and return its parsed JSON output.
 
@@ -79,13 +88,12 @@ class OpenClawClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as http:
-                resp = await http.post(
-                    f"{self._url}/api/sessions",
-                    headers=self._headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
+            resp = await self._http.post(
+                f"{self._url}/api/sessions",
+                json=payload,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "OpenClaw agent=%s HTTP %d: %s",
@@ -137,6 +145,8 @@ async def get_openclaw_client() -> OpenClawClient | None:
     if _init_done:
         return _client
 
+    # No await between flag-check and flag-set so concurrent callers cannot
+    # interleave here in a single-threaded asyncio event loop.
     _init_done = True
 
     if not settings.openclaw_gateway_url:
@@ -188,6 +198,12 @@ def build_crossref_payload(
         "from_building": {"id": from_building_id, "name": from_building_name},
         "to_building": {"name": to_building_name},
         "estimated_range_m": round(estimated_range_m),
+        "coordination": {
+            "sector_count": _COORD_SECTOR_COUNT,
+            "overlap_band_m": _COORD_OVERLAP_BAND_M,
+            "boundary_checkpoints": _COORD_BOUNDARY_CHECKPOINTS,
+            "sync_interval_s": _COORD_SYNC_INTERVAL_S,
+        },
     }
 
 
@@ -207,5 +223,17 @@ def build_crossref_prompt(
     )
     return (
         f"Cross-reference hazard detected:\n{json.dumps(payload, indent=2)}\n\n"
+        "Coordination context: Aegis-Net deploys scouts in overlapping sectors with a "
+        f"{_COORD_OVERLAP_BAND_M}m shared boundary band between adjacent teams. "
+        f"SCOUT-{from_scout_id.upper()} and SCOUT-{to_scout_id.upper()} BOTH operate "
+        "within this overlap zone simultaneously — their assessment areas physically intersect. "
+        "This hazard crosses that shared boundary and BOTH scouts must take coordinated action.\n\n"
+        "Resolution requirements:\n"
+        f"- Assign explicit, different actions to EACH scout (SCOUT-{from_scout_id.upper()} "
+        f"and SCOUT-{to_scout_id.upper()})\n"
+        f"- Reference the {_COORD_OVERLAP_BAND_M}m overlap band and the "
+        f"{_COORD_BOUNDARY_CHECKPOINTS} boundary checkpoints by name\n"
+        f"- Include a {_COORD_SYNC_INTERVAL_S}s sync cadence between scouts until resolved\n"
+        "- End with a direct acknowledgement request to the receiving scout\n\n"
         "Generate the ICS cross-reference report as specified."
     )

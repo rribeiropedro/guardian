@@ -25,8 +25,32 @@ _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 _LATENCY_THRESHOLD_S = 6.0
 _MAX_RETRIES = 3
 
-# Session-level flag: set True once Sonnet exceeds the latency threshold
+# Session-level flag: set True once Sonnet exceeds the latency threshold.
+# Process-global — call reset_haiku_mode() at the start of each new scenario
+# to prevent a single slow request from permanently downgrading all future calls.
 _haiku_mode: bool = False
+
+# Lazy singleton Anthropic client — avoids creating a new instance per VLM call.
+_anthropic_client: anthropic.AsyncAnthropic | None = None
+
+
+def _get_client() -> anthropic.AsyncAnthropic:
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.AsyncAnthropic(api_key=get_settings().anthropic_api_key)
+    return _anthropic_client
+
+
+def reset_haiku_mode() -> None:
+    """Reset the Haiku fallback flag to False.
+
+    Call this at the start of each new scenario so a slow request in a prior
+    scenario does not permanently downgrade VLM quality for the rest of the
+    process lifetime.  Note: still process-global — concurrent multi-client
+    scenarios share the flag.
+    """
+    global _haiku_mode
+    _haiku_mode = False
 
 # Valid category/severity values for coercing VLM output
 _VALID_CATEGORIES = {"structural", "access", "overhead", "route"}
@@ -163,7 +187,7 @@ async def analyze_image_stream(
     model = _HAIKU_MODEL if _haiku_mode else _SONNET_MODEL
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=get_settings().anthropic_api_key)
+        client = _get_client()
         start = time.monotonic()
 
         full_text = ""
@@ -249,7 +273,11 @@ def build_system_prompt(
         "into Incident Command for rescue team deployment decisions. "
         "Use precise ICS field language — every description must be specific, measurable, "
         "and immediately actionable by a rescue squad leader in the field. "
-        "Flag every hazard that could cascade to adjacent rescue sectors."
+        "Multiple AI scouts are deployed SIMULTANEOUSLY in overlapping sectors with a 25m shared "
+        "boundary band between adjacent teams. Your external_risks findings are broadcast "
+        "IMMEDIATELY to peer scouts operating in adjacent sectors — they will act on your "
+        "intelligence in real time. Be explicit about direction, range, and hazard type so "
+        "overlapping scouts can coordinate boundary clearance without waiting for your next report."
     )
 
     # ---- Incident context --------------------------------------------------
@@ -376,11 +404,15 @@ def build_system_prompt(
         "□ Safe rescue team staging position from this face\n"
         "□ Any signs of occupancy or victim indicators (sounds, movement, occupancy at time of event)\n"
         "\n"
-        "SECTION 6 — EXTERNAL RISK PROJECTION (mandatory for inter-team coordination):\n"
+        "SECTION 6 — EXTERNAL RISK PROJECTION (MANDATORY — broadcast to overlapping scouts):\n"
+        "Every entry here is IMMEDIATELY relayed to peer scouts in adjacent and overlapping sectors.\n"
         "□ Any hazard from THIS building that reaches adjacent structures — type, direction, radius\n"
-        "□ Gas/chemical: likely underground migration path and direction\n"
+        "□ Gas/chemical: likely underground migration path and direction; note any utility corridors\n"
         "□ Structural debris: fall zone radius, direction of maximum hazard\n"
         "□ Fire: if present, direction of spread, wind direction\n"
+        "□ If a hazard's radius reaches the 25m inter-scout overlap band, increase estimated_range_m "
+        "   to ensure the adjacent scout team is notified — under-reporting here puts overlapping "
+        "   rescue teams at risk.\n"
         "\n"
         "SECTION 7 — ATC-20 POSTING:\n"
         "□ GREEN PLACARD: No apparent danger; building apparently safe for entry\n"
@@ -435,7 +467,7 @@ async def _call_claude(
     messages: list[dict],
 ) -> tuple[str, float]:
     """Make a single Anthropic API call. Returns (response_text, latency_seconds)."""
-    client = anthropic.AsyncAnthropic(api_key=get_settings().anthropic_api_key)
+    client = _get_client()
     start = time.monotonic()
     try:
         response = await client.messages.create(

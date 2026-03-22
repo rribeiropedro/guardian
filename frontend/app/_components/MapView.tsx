@@ -741,7 +741,7 @@ export default function MapView({
     };
   }, [flyMode, onFlyExit]);
 
-  // Update tactical route layers when fly mode is active
+  // Update tactical route layers whenever the route changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
@@ -753,7 +753,7 @@ export default function MapView({
       | undefined;
     if (!routeSrc || !stopSrc) return;
 
-    if (!flyMode || !flyRoute || flyRoute.length === 0) {
+    if (!flyRoute || flyRoute.length === 0) {
       routeSrc.setData({ type: "FeatureCollection", features: [] });
       stopSrc.setData({ type: "FeatureCollection", features: [] });
       return;
@@ -791,7 +791,7 @@ export default function MapView({
         },
       })),
     });
-  }, [flyMode, flyRoute, mapLoaded]);
+  }, [flyRoute, mapLoaded]);
 
   // Update triage overlay when buildings change
   useEffect(() => {

@@ -63,6 +63,11 @@ MAX_TOOL_TURNS = 12
 # Minimum improvement ratio to emit a refined route (avoids trivial updates).
 MIN_IMPROVEMENT_RATIO = 0.05  # 5% cheaper → worth re-emitting
 
+# Coordination defaults for shared-boundary overlap behavior.
+_COORD_SECTOR_COUNT = 3
+_COORD_OVERLAP_BAND_M = 25
+_COORD_BOUNDARY_CHECKPOINTS = 2
+
 
 # ---------------------------------------------------------------------------
 # Agent context — all data the tools need, built once and passed through
@@ -206,7 +211,6 @@ class RouteAgentTools:
                     hit_zones.add(zone.label)
 
         hazard_list = []
-        bmap = self._ctx._building_map
         for zone in self._ctx.zones:
             if zone.label in hit_zones and zone.source == "building":
                 b = next(
@@ -408,6 +412,82 @@ class RouteAgentTools:
         }
 
     # ------------------------------------------------------------------
+    # Tool: get_ghost_route_analysis
+    # ------------------------------------------------------------------
+
+    def get_ghost_route_analysis(self, args: dict) -> dict:
+        """Analyse the ghost (direct/GPS) route waypoint-by-waypoint.
+
+        The ghost route is the straight-line path a normal navigation app would
+        suggest — computed WITHOUT hazard avoidance.  Calling this tool reveals
+        exactly which segments are dangerous and by how much, letting you justify
+        why the Dijkstra safe route is the better choice.
+
+        No args required.
+
+        Returns (JSON):
+            ghost_safe (bool): True if no ghost waypoints are inside a hazard zone.
+            hazardous_waypoints (list): Waypoints with cost > 0.5, each with:
+                index, lat, lng, hazard_type, hazard_label, cost.
+            total_ghost_cost (float): Summed hazard cost for the ghost route.
+            total_safe_cost (float): Summed hazard cost for the Dijkstra safe route.
+            cost_reduction_pct (float): % improvement of safe route vs ghost.
+            summary (str): One-sentence verdict comparing the two routes.
+        """
+        ghost_coords = [(w.lat, w.lng) for w in self._ctx.ghost_waypoints]
+        safe_coords = [(w.lat, w.lng) for w in self._ctx.current_waypoints]
+
+        ghost_cost = _path_total_cost(ghost_coords, self._ctx.zones) if ghost_coords else 0.0
+        safe_cost = _path_total_cost(safe_coords, self._ctx.zones) if safe_coords else 0.0
+
+        if math.isinf(ghost_cost):
+            ghost_cost = 99999.0
+        if math.isinf(safe_cost):
+            safe_cost = 99999.0
+
+        hazardous = []
+        for i, w in enumerate(self._ctx.ghost_waypoints):
+            c = waypoint_cost(w.lat, w.lng, self._ctx.zones)
+            if math.isinf(c):
+                c = 9999.0
+            if c > 0.5:
+                hz = classify_waypoint_hazard(w.lat, w.lng, self._ctx.zones)
+                hazardous.append({
+                    "index": i,
+                    "lat": w.lat,
+                    "lng": w.lng,
+                    "hazard_type": hz.type if hz else "unknown",
+                    "hazard_label": hz.label if hz else "hazard zone",
+                    "cost": round(c, 3),
+                })
+
+        cost_reduction = (
+            (ghost_cost - safe_cost) / max(ghost_cost, 0.001) * 100
+            if ghost_cost > 0 else 0.0
+        )
+
+        if hazardous:
+            summary = (
+                f"Ghost route passes through {len(hazardous)} hazardous waypoint(s) "
+                f"(total cost {ghost_cost:.1f}); safe Dijkstra route reduces hazard exposure "
+                f"by {cost_reduction:.0f}% (total cost {safe_cost:.1f})."
+            )
+        else:
+            summary = (
+                "Ghost route has no detected hazard zones — both routes are equivalent in safety. "
+                "Prefer the safe route for its explicit hazard classifications."
+            )
+
+        return {
+            "ghost_safe": len(hazardous) == 0,
+            "hazardous_waypoints": hazardous,
+            "total_ghost_cost": round(ghost_cost, 3),
+            "total_safe_cost": round(safe_cost, 3),
+            "cost_reduction_pct": round(cost_reduction, 1),
+            "summary": summary,
+        }
+
+    # ------------------------------------------------------------------
     # Tool dispatch
     # ------------------------------------------------------------------
 
@@ -419,6 +499,7 @@ class RouteAgentTools:
             "compare_routes": self.compare_routes,
             "suggest_detour": self.suggest_detour,
             "get_route_summary": self.get_route_summary,
+            "get_ghost_route_analysis": self.get_ghost_route_analysis,
         }
         handler = handlers.get(tool_name)
         if handler is None:
@@ -521,6 +602,16 @@ ROUTE_AGENT_TOOL_DEFINITIONS: list[dict] = [
             ],
         },
     },
+    {
+        "name": "get_ghost_route_analysis",
+        "description": (
+            "Analyse the ghost (straight-line / GPS) route to understand exactly why it is dangerous. "
+            "Call this FIRST — before auditing the safe route — to quantify how much worse the direct "
+            "path is and which hazard zones it passes through. "
+            "The result gives you the evidence needed to confirm or improve the Dijkstra safe route."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
 ]
 
 
@@ -559,7 +650,6 @@ def _build_agent_prompt(ctx: RouteAgentContext) -> str:
     for z in ctx.zones:
         d = dataclasses.asdict(z)
         # Replace math.inf with a large finite sentinel for JSON compatibility.
-        import math
         d["cost_multiplier"] = 9999.0 if math.isinf(d.get("cost_multiplier", 0)) else d["cost_multiplier"]
         zones_data.append(d)
 
@@ -578,28 +668,47 @@ def _build_agent_prompt(ctx: RouteAgentContext) -> str:
         "safe_route_waypoints": safe_wps,
         "ghost_route_waypoints": ghost_wps,
         "hazard_zones": zones_data,
+        "coordination": {
+            "sector_count": _COORD_SECTOR_COUNT,
+            "overlap_band_m": _COORD_OVERLAP_BAND_M,
+            "boundary_checkpoints": _COORD_BOUNDARY_CHECKPOINTS,
+        },
     }, indent=2)
 
     return (
-        "You are an earthquake emergency route planner for the Aegis-Net ICS platform.\n\n"
-        "A Dijkstra hazard-avoidance algorithm has computed a safe route. "
-        "Review it and return either the confirmed route or an improved one.\n\n"
+        "You are the final step in the Aegis-Net ICS agent pipeline.\n\n"
+        "All scout agents have completed their building assessments and cross-references. "
+        "Their findings are baked into the hazard_zones below — every debris field, "
+        "gas risk, and structural collapse zone that any scout observed is represented. "
+        "Your job is to produce the definitive safe walking route that a first-responder "
+        "will actually walk through on the ground.\n\n"
         f"## Route Context\n{context_json}\n\n"
-        "## Instructions\n"
-        "1. Examine the safe_route_waypoints and identify any with non-null hazard entries.\n"
-        "2. Check whether any waypoints sit inside a hazard_zone "
-        "(distance from waypoint to zone center < radius_m).\n"
-        "3. If dangerous waypoints exist, propose alternative coordinates that stay outside "
-        "all hazard_zones.\n"
-        "4. Only change the route if your proposed path avoids hazards meaningfully better. "
-        "Use your judgment — a 5%+ improvement in hazard exposure is worth a detour.\n\n"
+        "## Mandatory reasoning steps — call tools in this order\n"
+        "1. Call `get_ghost_route_analysis` first. "
+        "Understand exactly which hazard zones the direct GPS path crosses and by how much. "
+        "This gives you the baseline danger level you are trying to improve on.\n"
+        "2. Call `get_route_summary` to review the Dijkstra safe route and see how it compares "
+        "to the ghost route in total hazard cost.\n"
+        "3. For any waypoint in the safe route that still has a non-null hazard entry, "
+        "call `evaluate_waypoint_safety` to confirm its cost and whether it is blocked.\n"
+        "4. If any segment still clips a hazard zone, call `get_segment_hazards` on that segment "
+        "and use `suggest_detour` to route around it.\n"
+        "5. Call `compare_routes` to verify your final path beats the Dijkstra route by ≥5%. "
+        "If it does not, keep the Dijkstra route — it is already the best the algorithm found.\n\n"
+        "## Ghost route reasoning requirement\n"
+        "Your reasoning field MUST explain:\n"
+        "  - How many hazard zones the ghost route passes through and their types.\n"
+        "  - Why the safe route avoids these (specific detour direction if any).\n"
+        "  - Whether you made any improvements or confirmed the route is already optimal.\n\n"
         "## Output\n"
         "Return ONLY a valid JSON object — no markdown, no commentary:\n"
         "{\n"
         '  "refined_waypoints": [{"lat": <float>, "lng": <float>}, ...],\n'
-        '  "reasoning": "<one sentence: what you found and what you changed>"\n'
+        '  "reasoning": "<ghost route had X hazards of type Y; safe route avoids them by Z; '
+        'result: confirmed / improved by N%>"\n'
         "}\n\n"
-        "If the original route is already safe, return it unchanged with reasoning confirming it."
+        "If the original route is already optimal, return it unchanged with reasoning explaining "
+        "why the ghost route is dangerous and the safe route is the correct choice."
         + (f"\n\nScenario context: {ctx.scenario_prompt}" if ctx.scenario_prompt else "")
     )
 
@@ -661,10 +770,9 @@ async def run_background_route_analysis(
         current_cost = _path_total_cost(current_path, ctx.zones)
         refined_cost = _path_total_cost(refined_path, ctx.zones)
 
-        import math as _math
-        if _math.isinf(current_cost):
+        if math.isinf(current_cost):
             current_cost = 99999.0
-        if _math.isinf(refined_cost):
+        if math.isinf(refined_cost):
             refined_cost = 99999.0
 
         improvement = (current_cost - refined_cost) / max(current_cost, 0.001)
@@ -701,6 +809,12 @@ async def run_background_route_analysis(
                 Waypoint(lat=lat, lng=lng, heading=heading, pano_id=pano_id, hazard=hazard)
             )
 
+        dropped = len(refined_path) - len(refined_waypoints)
+        if dropped:
+            logger.warning(
+                "RouteAgent: %d/%d refined waypoints had no panorama and were dropped",
+                dropped, len(refined_path),
+            )
         if not refined_waypoints:
             logger.warning("RouteAgent: refined path produced no valid waypoints — keeping Dijkstra route")
             return

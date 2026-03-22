@@ -30,12 +30,14 @@ from .models.schemas import (
     RequestRoute,
     RouteResult,
     ScoredBuilding,
+    ScoutsConcluded,
     StartScenario,
     TriageResult,
 )
 from .agents.coordinator import Coordinator
 from .services.osm import fetch_buildings
 from .services.triage import score_buildings
+from .services.vlm import reset_haiku_mode
 
 # One Coordinator per connected client — owns the scout registry and task lifecycle.
 _coordinators: dict[str, Coordinator] = {}
@@ -90,6 +92,11 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+def _make_emit(client_id: str) -> Callable[[dict], Awaitable[None]]:
+    """Return a send callable bound to a specific WebSocket client."""
+    return lambda m: manager.send_personal_message(client_id, m)
 
 
 @app.get("/health")
@@ -224,25 +231,47 @@ async def _handle_start_scenario(client_id: str, payload: dict) -> None:
 
     # Task 6: auto-deploy alpha / bravo / charlie to the top-3 triage buildings.
     scenario = _scenario_state[client_id]
-    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
+    emit = _make_emit(client_id)
 
     # Cancel any scouts left over from a previous scenario run.
     old_coord = _coordinators.get(client_id)
     if old_coord:
         old_coord.cancel_all()
 
-    # Reset shared cross-reference state so prior scenario findings don't bleed in.
-    from .agents.state import get_shared_state
-    get_shared_state().reset_for_scenario(scenario.get("scenario_id"))
-
-    coord = Coordinator(emit=emit)
-    _coordinators[client_id] = coord
+    # Each new Coordinator creates its own SharedState — no cross-scenario bleed.
+    # Reset the VLM Haiku flag so a slow request in the previous scenario
+    # doesn't permanently downgrade this scenario's VLM quality.
+    reset_haiku_mode()
 
     top_buildings = [
         scenario["buildings_by_id"][bid]
         for bid in scenario["top_buildings"]
         if bid in scenario["buildings_by_id"]
     ]
+
+    async def _on_scouts_done() -> None:
+        """Fires when all auto-scouts finish analysis + auto-survey.
+
+        Emits scouts_concluded so the frontend can auto-trigger the route
+        walkthrough.  The route agent will have the richest possible hazard
+        data at this point because all SharedState findings are written.
+        """
+        current_scenario = _scenario_state.get(client_id, {})
+        top_bids = current_scenario.get("top_buildings", [])
+        if not top_bids:
+            logger.warning("scouts_concluded: no top buildings in scenario for client=%s", client_id)
+            return
+        target_building_id = top_bids[0]
+        concluded_msg = ScoutsConcluded(target_building_id=target_building_id)
+        await manager.send_personal_message(client_id, concluded_msg.model_dump())
+        logger.info(
+            "scouts_concluded emitted: client=%s target_building=%s",
+            client_id, target_building_id,
+        )
+
+    coord = Coordinator(emit=emit, on_all_scouts_done=_on_scouts_done)
+    _coordinators[client_id] = coord
+
     coord.auto_deploy(
         buildings=top_buildings,
         epicenter_lat=scenario["epicenter_lat"],
@@ -255,9 +284,9 @@ async def _handle_start_scenario(client_id: str, payload: dict) -> None:
 def _extract_magnitude(prompt: str) -> float:
     # Support forms like "M6.4", "magnitude 6.4", or plain "6.4 magnitude".
     patterns = [
-        r"\b[mM]\s*([0-9](?:\.[0-9])?)\b",
-        r"\bmagnitude\s*[:=]?\s*([0-9](?:\.[0-9])?)\b",
-        r"\b([0-9](?:\.[0-9])?)\s*magnitude\b",
+        r"\b[mM]\s*([0-9]+(?:\.[0-9]+)?)\b",
+        r"\bmagnitude\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\b",
+        r"\b([0-9]+(?:\.[0-9]+)?)\s*magnitude\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, prompt)
@@ -348,7 +377,7 @@ async def _handle_deploy_scout(client_id: str, payload: dict) -> None:
         client_id, msg.building_id, msg.prompt
     )
 
-    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
+    emit = _make_emit(client_id)
     coord = _coordinators.get(client_id)
     if coord is None:
         coord = Coordinator(emit=emit)
@@ -361,7 +390,6 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
     from .services.route import calculate_ghost_route, calculate_route
     from .services.route_hazards import build_hazard_zones
     from .agents.route_agent import RouteAgentContext, run_background_route_analysis
-    from .agents.state import get_shared_state
 
     msg = RequestRoute.model_validate(payload)
     scenario = _scenario_state.get(client_id, {})
@@ -383,7 +411,10 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
     magnitude: float = scenario.get("magnitude", 6.0)
     scenario_prompt: str = scenario.get("prompt", "")
 
-    shared_state_records = get_shared_state().get_all_records()
+    # Pull scout findings from the per-coordinator SharedState so we get
+    # only this client's hazard data, not findings from other sessions.
+    coord = _coordinators.get(client_id)
+    shared_state_records = coord.shared_state.get_all_records() if coord else []
 
     route_kwargs = dict(
         hazard_buildings=hazard_buildings,
@@ -430,9 +461,8 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
         magnitude=magnitude,
         scenario_prompt=scenario_prompt,
     )
-    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
     asyncio.create_task(
-        run_background_route_analysis(ctx, emit),
+        run_background_route_analysis(ctx, _make_emit(client_id)),
         name=f"route-agent-{msg.building_id}",
     )
 

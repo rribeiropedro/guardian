@@ -12,7 +12,6 @@ import type {
 } from '../_lib/types'
 import { useWebSocket } from '../_lib/useWebSocket'
 import ScenarioInput from './ScenarioInput'
-import RouteWalkthrough from './RouteWalkthrough'
 import LocationSearch from './LocationSearch'
 import AgentCommsPanel from './AgentCommsPanel'
 
@@ -33,6 +32,9 @@ export default function CommandCenter() {
   const [flyMode, setFlyMode] = useState(false)
   const [flyTarget, setFlyTarget] = useState<Building | null>(null)
   const [flyHint, setFlyHint] = useState(false)
+  // Set by the scouts_concluded handler; a useEffect below sends the route request
+  // once `send` is available (send comes from useWebSocket, defined after handleMessage).
+  const [pendingRouteBuildingId, setPendingRouteBuildingId] = useState<string | null>(null)
 
   // ── Agent state ──────────────────────────────────────────────────────────────
   const [scouts, setScouts] = useState<Scout[]>([])
@@ -103,6 +105,19 @@ export default function CommandCenter() {
             handleGoFirstPerson(target, msg.buildings)
           }, 5000)
         }
+        break
+      }
+
+      case 'scouts_concluded': {
+        // All scouts have finished analysis + auto-survey — SharedState has the
+        // richest hazard data possible.  Set pending building id; the useEffect
+        // below fires the request_route once `send` is in scope.
+        addFeedEntry({
+          entryType: 'status',
+          from: 'ICS',
+          text: 'All scouts concluded. Calculating safe route to priority target…',
+        })
+        setPendingRouteBuildingId(msg.target_building_id)
         break
       }
 
@@ -235,6 +250,14 @@ export default function CommandCenter() {
 
   const { status: wsStatus, send } = useWebSocket(handleMessage)
 
+  // Auto-send request_route once scouts_concluded fires and `send` is available.
+  useEffect(() => {
+    if (pendingRouteBuildingId) {
+      send({ type: 'request_route', building_id: pendingRouteBuildingId })
+      setPendingRouteBuildingId(null)
+    }
+  }, [pendingRouteBuildingId, send])
+
   useEffect(() => {
     return () => {
       clearAutoNavTimeout()
@@ -292,6 +315,7 @@ export default function CommandCenter() {
       setBuildings((prev) => prev.filter((b) => b.color === 'RED'))
       setActiveBuilding(null)
       setRoute(null)
+      setPendingRouteBuildingId(null)
       setScenarioRunning(true)
       setScouts([])
       setAgentFeed([])
@@ -397,15 +421,6 @@ export default function CommandCenter() {
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 text-[10px] font-mono text-slate-700 pointer-events-none">
           ESC to exit
         </div>
-      )}
-
-      {/* ── Route Walkthrough overlay ── */}
-      {route && (
-        <RouteWalkthrough
-          waypoints={route}
-          googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
-          onClose={() => setRoute(null)}
-        />
       )}
 
       {/* ── Scenario input ── */}
