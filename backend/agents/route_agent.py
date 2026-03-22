@@ -62,6 +62,12 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_TURNS = 12
 # Minimum improvement ratio to emit a refined route (avoids trivial updates).
 MIN_IMPROVEMENT_RATIO = 0.05  # 5% cheaper → worth re-emitting
+# Ideal path must cover between 30% and 40% of all scenario buildings.
+# e.g. 20 buildings → min 6, max 8 building centroids on the path.
+MIN_BUILDING_COVERAGE = 0.30
+MAX_BUILDING_COVERAGE = 0.40
+# A waypoint is considered "at" a building if it is within this radius.
+_BUILDING_SNAP_M = 60.0
 
 # Coordination defaults for shared-boundary overlap behavior.
 _COORD_SECTOR_COUNT = 3
@@ -90,11 +96,15 @@ class RouteAgentContext:
     epicenter_lng: float
     magnitude: float
     scenario_prompt: str = ""
+    # All buildings in the scenario (target + hazard) — used for coverage enforcement.
+    all_buildings: list[ScoredBuilding] = field(default_factory=list)
     # Map building_id → ScoredBuilding for O(1) lookup inside tools.
     _building_map: dict[str, ScoredBuilding] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._building_map = {b.id: b for b in self.hazard_buildings}
+        if not self.all_buildings:
+            self.all_buildings = [self.target_building] + self.hazard_buildings
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +626,88 @@ ROUTE_AGENT_TOOL_DEFINITIONS: list[dict] = [
 
 
 # ---------------------------------------------------------------------------
+# Building-coverage enforcement
+# ---------------------------------------------------------------------------
+
+def _covered_buildings(
+    path: list[tuple[float, float]],
+    buildings: list[ScoredBuilding],
+    snap_m: float = _BUILDING_SNAP_M,
+) -> list[ScoredBuilding]:
+    """Return the subset of buildings whose centroid is within snap_m of any path point."""
+    covered = []
+    for b in buildings:
+        blat, blng = _centroid(b.footprint) if b.footprint else (b.lat, b.lng)
+        for lat, lng in path:
+            if _haversine_m(lat, lng, blat, blng) <= snap_m:
+                covered.append(b)
+                break
+    return covered
+
+
+def _best_insertion_index(
+    path: list[tuple[float, float]],
+    pt: tuple[float, float],
+) -> int:
+    """Return the index i such that inserting pt between path[i] and path[i+1]
+    adds the least extra distance to the total path length."""
+    best_i = 0
+    best_extra = math.inf
+    for i in range(len(path) - 1):
+        extra = (
+            _haversine_m(path[i][0], path[i][1], pt[0], pt[1])
+            + _haversine_m(pt[0], pt[1], path[i + 1][0], path[i + 1][1])
+            - _haversine_m(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1])
+        )
+        if extra < best_extra:
+            best_extra = extra
+            best_i = i
+    return best_i + 1  # insert AFTER path[best_i]
+
+
+def enforce_building_coverage(
+    path: list[tuple[float, float]],
+    ctx: RouteAgentContext,
+) -> list[tuple[float, float]]:
+    """Ensure the path visits between MIN_BUILDING_COVERAGE and MAX_BUILDING_COVERAGE
+    fraction of all buildings (30–40%).
+
+    If coverage is below the minimum, inserts building centroids at the lowest-cost
+    insertion points, prioritised by triage_score descending.
+    Insertions stop once the path reaches MAX_BUILDING_COVERAGE to avoid bloat.
+    """
+    total = len(ctx.all_buildings)
+    min_nodes = max(1, math.ceil(total * MIN_BUILDING_COVERAGE))
+    max_nodes = max(min_nodes, math.floor(total * MAX_BUILDING_COVERAGE))
+    covered = _covered_buildings(path, ctx.all_buildings)
+
+    if len(covered) >= min_nodes:
+        return path
+
+    # Sort uncovered buildings by triage score so we pick the most important ones.
+    covered_ids = {b.id for b in covered}
+    uncovered = sorted(
+        [b for b in ctx.all_buildings if b.id not in covered_ids],
+        key=lambda b: b.triage_score,
+        reverse=True,
+    )
+
+    result = list(path)
+    # Insert only enough to reach min_nodes, but never exceed max_nodes.
+    needed = min(min_nodes - len(covered), max_nodes - len(covered))
+    for b in uncovered[:needed]:
+        blat, blng = _centroid(b.footprint) if b.footprint else (b.lat, b.lng)
+        idx = _best_insertion_index(result, (blat, blng))
+        result.insert(idx, (blat, blng))
+        logger.debug(
+            "Coverage enforcement: inserted building %r (score=%.1f) at path index %d",
+            b.name, b.triage_score, idx,
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Background agent runner
 # ---------------------------------------------------------------------------
 
@@ -653,6 +745,21 @@ def _build_agent_prompt(ctx: RouteAgentContext) -> str:
         d["cost_multiplier"] = 9999.0 if math.isinf(d.get("cost_multiplier", 0)) else d["cost_multiplier"]
         zones_data.append(d)
 
+    # All building centroids — agent uses these to plan coverage stops.
+    total_buildings = len(ctx.all_buildings)
+    min_building_nodes = max(1, math.ceil(total_buildings * MIN_BUILDING_COVERAGE))
+    max_building_nodes = max(min_building_nodes, math.floor(total_buildings * MAX_BUILDING_COVERAGE))
+    all_building_nodes = [
+        {
+            "name": b.name,
+            "color": b.color,
+            "triage_score": round(b.triage_score, 1),
+            "lat": _centroid(b.footprint)[0] if b.footprint else b.lat,
+            "lng": _centroid(b.footprint)[1] if b.footprint else b.lng,
+        }
+        for b in sorted(ctx.all_buildings, key=lambda b: b.triage_score, reverse=True)
+    ]
+
     context_json = _json.dumps({
         "start": {"lat": start_lat, "lng": start_lng},
         "target": {
@@ -668,6 +775,19 @@ def _build_agent_prompt(ctx: RouteAgentContext) -> str:
         "safe_route_waypoints": safe_wps,
         "ghost_route_waypoints": ghost_wps,
         "hazard_zones": zones_data,
+        "all_buildings": all_building_nodes,
+        "coverage_requirement": {
+            "total_buildings": total_buildings,
+            "min_building_nodes_required": min_building_nodes,
+            "max_building_nodes_allowed": max_building_nodes,
+            "snap_radius_m": _BUILDING_SNAP_M,
+            "rule": f"Your refined_waypoints MUST pass within {_BUILDING_SNAP_M}m of between "
+                    f"{min_building_nodes} and {max_building_nodes} of the {total_buildings} "
+                    f"building centroids ({int(MIN_BUILDING_COVERAGE * 100)}–"
+                    f"{int(MAX_BUILDING_COVERAGE * 100)}% coverage range). "
+                    "Prioritise higher triage_score buildings. The server enforces this range "
+                    "automatically.",
+        },
         "coordination": {
             "sector_count": _COORD_SECTOR_COUNT,
             "overlap_band_m": _COORD_OVERLAP_BAND_M,
@@ -683,6 +803,13 @@ def _build_agent_prompt(ctx: RouteAgentContext) -> str:
         "Your job is to produce the definitive safe walking route that a first-responder "
         "will actually walk through on the ground.\n\n"
         f"## Route Context\n{context_json}\n\n"
+        "## Coverage requirement (MANDATORY)\n"
+        f"Your refined_waypoints MUST include between {min_building_nodes} and {max_building_nodes} "
+        f"building centroids from the all_buildings list (within {_BUILDING_SNAP_M}m of each centroid). "
+        f"This is the {int(MIN_BUILDING_COVERAGE * 100)}–{int(MAX_BUILDING_COVERAGE * 100)}% "
+        f"coverage range across {total_buildings} buildings. "
+        "Route through the highest triage_score buildings first, avoiding their hazard zones "
+        "where possible. The server enforces this range automatically.\n\n"
         "## Mandatory reasoning steps — call tools in this order\n"
         "1. Call `get_ghost_route_analysis` first. "
         "Understand exactly which hazard zones the direct GPS path crosses and by how much. "
@@ -699,13 +826,14 @@ def _build_agent_prompt(ctx: RouteAgentContext) -> str:
         "Your reasoning field MUST explain:\n"
         "  - How many hazard zones the ghost route passes through and their types.\n"
         "  - Why the safe route avoids these (specific detour direction if any).\n"
+        f"  - Which {min_building_nodes} buildings your path covers and why those were chosen.\n"
         "  - Whether you made any improvements or confirmed the route is already optimal.\n\n"
         "## Output\n"
         "Return ONLY a valid JSON object — no markdown, no commentary:\n"
         "{\n"
         '  "refined_waypoints": [{"lat": <float>, "lng": <float>}, ...],\n'
         '  "reasoning": "<ghost route had X hazards of type Y; safe route avoids them by Z; '
-        'result: confirmed / improved by N%>"\n'
+        'covers N buildings; result: confirmed / improved by N%>"\n'
         "}\n\n"
         "If the original route is already optimal, return it unchanged with reasoning explaining "
         "why the ghost route is dangerous and the safe route is the correct choice."
@@ -783,6 +911,18 @@ async def run_background_route_analysis(
             )
             # Still emit with agent_validated=True to signal the agent confirmed the route.
             refined_path = current_path
+
+        # Enforce building-coverage rule: 30–40% of all buildings must be on the path.
+        pre_coverage = len(_covered_buildings(refined_path, ctx.all_buildings))
+        refined_path = enforce_building_coverage(refined_path, ctx)
+        post_coverage = len(_covered_buildings(refined_path, ctx.all_buildings))
+        total_bldgs = len(ctx.all_buildings)
+        min_required = max(1, math.ceil(total_bldgs * MIN_BUILDING_COVERAGE))
+        max_allowed = max(min_required, math.floor(total_bldgs * MAX_BUILDING_COVERAGE))
+        logger.info(
+            "RouteAgent: building coverage %d→%d/%d (range %d–%d)",
+            pre_coverage, post_coverage, total_bldgs, min_required, max_allowed,
+        )
 
         # Fetch pano IDs for the refined path (may include new waypoints).
         pano_ids: list[str | None] = await asyncio.gather(

@@ -190,6 +190,19 @@ class ScoutsConcluded(MessageBase):
     target_building_id: str  # highest-priority building — auto-route target
 
 
+class FemaReport(MessageBase):
+    """Full incident report exported on request. Contains all scenario data,
+    triage scores, scout findings, and the final route for FEMA/ICS handoff."""
+    type: Literal["fema_report"] = "fema_report"
+    scenario_id: str
+    generated_at: str
+    scenario: dict          # prompt, epicenter, magnitude, time_of_day
+    buildings: list[dict]   # all scored buildings
+    scout_findings: list[dict]  # SharedState risk records
+    route: dict | None      # last emitted route_result (None if not yet requested)
+    waypoint_budget: dict   # used / total
+
+
 # ----------------------------
 # Frontend -> Server messages
 # ----------------------------
@@ -230,4 +243,5 @@ ServerMessage = (
     | AgentStreamEnd
     | ErrorMessage
     | ScoutsConcluded
+    | FemaReport
 )

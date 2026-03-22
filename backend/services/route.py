@@ -73,6 +73,8 @@ STEP_M: float = 50.0          # Baseline waypoint spacing along the route (metre
 GRID_COLS: int = 7             # Number of lateral grid columns either side of straight line
 GRID_LATERAL_SPREAD_M: float = 120.0  # Max lateral offset from straight-line path (metres)
 WALK_SPEED_MPS: float = 1.4   # Pedestrian speed (m/s); 1.4 m/s is standard evacuation speed
+MAX_WAYPOINTS: int = 20        # Hard cap on waypoints per scout route (keeps pano fetches bounded)
+MAX_TOTAL_WAYPOINTS: int = 32  # Global budget shared across ALL scouts in a session
 
 # Hazard beta: relative weight of hazard cost vs. travel time.
 # 2.0 = first-responder routing (MDPI 2020 recommendation for rescue teams).
@@ -474,6 +476,7 @@ async def calculate_route(
 
     # --- Step 2-4: Grid → graph → Dijkstra ---
     candidate_path = _find_best_path(start, (target_lat, target_lng), zones)
+    candidate_path = candidate_path[:MAX_WAYPOINTS]
 
     # --- Steps 5-7: Fetch pano IDs concurrently, annotate hazards ---
     pano_ids: list[str | None] = await asyncio.gather(

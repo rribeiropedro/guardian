@@ -27,6 +27,7 @@ from .models.schemas import (
     CommanderMessage,
     DeployScout,
     ErrorMessage,
+    FemaReport,
     RequestRoute,
     RouteResult,
     ScoredBuilding,
@@ -199,6 +200,7 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
         "buildings_by_id": {b.id: b for b in scored},
         "top_buildings": [b.id for b in scored[:4]],
         "all_building_ids": [b.id for b in scored],
+        "waypoints_used": 0,
     }
     logger.info(
         "SCENARIO stored: id=%s magnitude=%.1f time=%s buildings=%d prompt=%r",
@@ -390,7 +392,7 @@ async def _handle_deploy_scout(client_id: str, payload: dict) -> None:
 
 
 async def _handle_request_route(client_id: str, payload: dict) -> None:
-    from .services.route import calculate_ghost_route, calculate_route
+    from .services.route import MAX_TOTAL_WAYPOINTS, calculate_ghost_route, calculate_route
     from .services.route_hazards import build_hazard_zones
     from .agents.route_agent import RouteAgentContext, run_background_route_analysis
 
@@ -433,6 +435,16 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
         calculate_ghost_route(start, target, **route_kwargs),
     )
 
+    # Enforce global waypoint budget shared across all scouts in this session.
+    waypoints_used: int = scenario.get("waypoints_used", 0)
+    remaining = max(0, MAX_TOTAL_WAYPOINTS - waypoints_used)
+    safe_waypoints = safe_waypoints[:remaining]
+    scenario["waypoints_used"] = waypoints_used + len(safe_waypoints)
+    logger.info(
+        "WS route budget: used=%d/%d remaining=%d scout=%s",
+        scenario["waypoints_used"], MAX_TOTAL_WAYPOINTS, remaining - len(safe_waypoints), msg.building_id,
+    )
+
     # Emit immediately — frontend gets both routes without waiting for the cloud agent.
     result = RouteResult(
         target_building_id=msg.building_id,
@@ -440,6 +452,7 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
         ghost_waypoints=ghost_waypoints,
         agent_validated=False,
     )
+    scenario["last_route"] = result.model_dump()
     await manager.send_personal_message(client_id, result.model_dump())
 
     # Fire background OpenClaw cloud route analysis — does NOT block the WS handler.
@@ -456,6 +469,7 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
         start=start,
         target_building=target,
         hazard_buildings=hazard_buildings,
+        all_buildings=list(buildings_by_id.values()),
         current_waypoints=safe_waypoints,
         ghost_waypoints=ghost_waypoints,
         zones=zones,
@@ -470,11 +484,82 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
     )
 
 
+async def _handle_export_fema(client_id: str, payload: dict) -> None:
+    from datetime import datetime, timezone
+    from .services.route import MAX_TOTAL_WAYPOINTS
+
+    scenario = _scenario_state.get(client_id)
+    if not scenario:
+        await _send_error(client_id, "No active scenario — start a scenario before exporting.")
+        return
+
+    coord = _coordinators.get(client_id)
+    raw_records = coord.shared_state.get_all_records() if coord else []
+
+    scout_findings = [
+        {
+            "scout_id": r.scout_id,
+            "building_id": r.building_id,
+            "risk_type": r.risk_type,
+            "severity": r.severity,
+            "origin_lat": r.origin_lat,
+            "origin_lng": r.origin_lng,
+            "estimated_range_m": r.estimated_range_m,
+            "direction": r.direction,
+        }
+        for r in raw_records
+    ]
+
+    buildings_out = [
+        {
+            "id": b.id,
+            "name": b.name,
+            "lat": b.lat,
+            "lng": b.lng,
+            "triage_score": b.triage_score,
+            "color": b.color,
+            "damage_probability": b.damage_probability,
+            "estimated_occupancy": b.estimated_occupancy,
+            "material": b.material,
+            "levels": b.levels,
+            "height_m": b.height_m,
+            "building_type": b.building_type,
+        }
+        for b in scenario["buildings_by_id"].values()
+    ]
+    # Sort by triage_score descending for readability.
+    buildings_out.sort(key=lambda b: b["triage_score"], reverse=True)
+
+    waypoints_used: int = scenario.get("waypoints_used", 0)
+
+    report = FemaReport(
+        scenario_id=scenario["scenario_id"],
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        scenario={
+            "prompt": scenario["prompt"],
+            "epicenter": {"lat": scenario["epicenter_lat"], "lng": scenario["epicenter_lng"]},
+            "magnitude": scenario["magnitude"],
+            "time_of_day": scenario["time_of_day"],
+        },
+        buildings=buildings_out,
+        scout_findings=scout_findings,
+        route=scenario.get("last_route"),
+        waypoint_budget={"used": waypoints_used, "total": MAX_TOTAL_WAYPOINTS},
+    )
+    logger.info(
+        "WS export_fema: scenario=%s buildings=%d findings=%d route=%s",
+        scenario["scenario_id"], len(buildings_out), len(scout_findings),
+        "yes" if scenario.get("last_route") else "no",
+    )
+    await manager.send_personal_message(client_id, report.model_dump())
+
+
 DISPATCH_TABLE = {
     "start_scenario": _handle_start_scenario,
     "commander_message": _handle_commander_message,
     "deploy_scout": _handle_deploy_scout,
     "request_route": _handle_request_route,
+    "export_fema": _handle_export_fema,
 }
 
 
