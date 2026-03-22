@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/praba/OneDrive/Desktop/guardian -maxdepth 3 -type d -not -path */node_modules/* -not -path */__pycache__/* -not -path */venv/* -not -path */.next/*)"
+    ]
+  }
+}

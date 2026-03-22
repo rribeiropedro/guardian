@@ -93,6 +93,28 @@ export interface RouteResultMsg {
   type: 'route_result'
   target_building_id: string
   waypoints: Waypoint[]
+  ghost_waypoints: Waypoint[]
+  agent_validated: boolean
+}
+
+export interface AgentStreamStartMsg {
+  type: 'agent_stream_start'
+  scout_id: string
+  building_id: string
+}
+
+export interface AgentStreamChunkMsg {
+  type: 'agent_stream_chunk'
+  scout_id: string
+  building_id: string
+  chunk: string
+  sequence: number
+}
+
+export interface AgentStreamEndMsg {
+  type: 'agent_stream_end'
+  scout_id: string
+  building_id: string
 }
 
 export interface ErrorMsg {
@@ -106,6 +128,9 @@ export type ServerMessage =
   | ScoutReportMsg
   | CrossReferenceMsg
   | RouteResultMsg
+  | AgentStreamStartMsg
+  | AgentStreamChunkMsg
+  | AgentStreamEndMsg
   | ErrorMsg
 
 // ── Frontend → Server messages ────────────────────────────────────────────────
@@ -139,6 +164,21 @@ export type ClientMessage =
   | CommanderMessageMsg
   | DeployScoutMsg
   | RequestRouteMsg
+
+// ── Agent comms feed types ────────────────────────────────────────────────────
+
+export type AgentFeedEntryType = 'status' | 'streaming' | 'sitrep' | 'cross_ref' | 'commander'
+
+export interface AgentFeedEntry {
+  id: string
+  timestamp: number
+  entryType: AgentFeedEntryType
+  from: string
+  to?: string
+  text: string
+  isStreaming?: boolean
+  analysis?: ScoutAnalysis
+}
 
 // ── Frontend-only state types ─────────────────────────────────────────────────
 
