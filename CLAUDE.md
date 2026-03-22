@@ -71,10 +71,10 @@ Every `httpx` call uses `timeout=10.0`. No exceptions.
 | 1 | FastAPI skeleton + WebSocket endpoint | Done |
 | 2 | OSM data service | Done |
 | 3 | Street View service | Done |
-| 4 | Triage pipeline integration | TODO |
-| 5 | Single scout execution loop | TODO — **critical path** |
-| 6 | Coordinator + auto-deploy | TODO |
-| 7 | Cross-reference system | TODO — cut if behind at Hour 8 |
+| 4 | Triage pipeline integration | Done |
+| 5 | Single scout execution loop | Done |
+| 6 | Coordinator + auto-deploy | Done |
+| 7 | Cross-reference system | Done (integrated into Task 5 via SharedState) |
 | 8 | Route calculation integration | TODO — cut if behind at Hour 12 |
 | 9 | Error handling, caching & demo hardening | Done (base layer) |
 

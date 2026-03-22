@@ -28,26 +28,22 @@ from .models.schemas import (
     DeployScout,
     ErrorMessage,
     RequestRoute,
+    RouteResult,
     ScoredBuilding,
     StartScenario,
     TriageResult,
 )
+from .agents.coordinator import Coordinator
 from .services.osm import fetch_buildings
 from .services.triage import score_buildings
 
-# Scout registry: client_id -> {scout_id -> Scout}
-_scouts: dict[str, dict[str, object]] = {}
-# Scenario state set by start_scenario handler (Task 4 will populate fully)
+# One Coordinator per connected client — owns the scout registry and task lifecycle.
+_coordinators: dict[str, Coordinator] = {}
+# Scenario state keyed by client_id — populated by _run_start_scenario.
 _scenario_state: dict[str, dict] = {}
-_scout_name_seq = ["alpha", "bravo", "charlie", "delta", "echo"]
 
 # Shared client id for curl-friendly /api/dev/* routes (pairs start_scenario + deploy_scout).
 HTTP_DEV_CLIENT_ID = "__http_dev__"
-
-
-def _next_scout_id(client_id: str) -> str:
-    used = len(_scouts.get(client_id, {}))
-    return _scout_name_seq[used] if used < len(_scout_name_seq) else f"scout-{used}"
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -188,6 +184,7 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
 
     _scenario_state[client_id] = {
         "scenario_id": scenario_id,
+        "prompt": msg.prompt,
         "epicenter_lat": msg.center.lat,
         "epicenter_lng": msg.center.lng,
         "magnitude": magnitude,
@@ -195,6 +192,10 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
         "buildings_by_id": {b.id: b for b in scored},
         "top_buildings": [b.id for b in scored[:3]],
     }
+    logger.info(
+        "SCENARIO stored: id=%s magnitude=%.1f time=%s buildings=%d prompt=%r",
+        scenario_id, magnitude, time_of_day, len(scored), msg.prompt[:80],
+    )
 
     return TriageResult(
         scenario_id=scenario_id,
@@ -220,6 +221,35 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
 async def _handle_start_scenario(client_id: str, payload: dict) -> None:
     triage_msg = await _run_start_scenario(client_id, payload)
     await manager.send_personal_message(client_id, triage_msg.model_dump())
+
+    # Task 6: auto-deploy alpha / bravo / charlie to the top-3 triage buildings.
+    scenario = _scenario_state[client_id]
+    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
+
+    # Cancel any scouts left over from a previous scenario run.
+    old_coord = _coordinators.get(client_id)
+    if old_coord:
+        old_coord.cancel_all()
+
+    # Reset shared cross-reference state so prior scenario findings don't bleed in.
+    from .agents.state import get_shared_state
+    get_shared_state().reset_for_scenario(scenario.get("scenario_id"))
+
+    coord = Coordinator(emit=emit)
+    _coordinators[client_id] = coord
+
+    top_buildings = [
+        scenario["buildings_by_id"][bid]
+        for bid in scenario["top_buildings"]
+        if bid in scenario["buildings_by_id"]
+    ]
+    coord.auto_deploy(
+        buildings=top_buildings,
+        epicenter_lat=scenario["epicenter_lat"],
+        epicenter_lng=scenario["epicenter_lng"],
+        magnitude=scenario["magnitude"],
+        scenario_prompt=scenario.get("prompt", ""),
+    )
 
 
 def _extract_magnitude(prompt: str) -> float:
@@ -249,44 +279,36 @@ def _extract_time_of_day(prompt: str) -> str:
 
 async def _handle_commander_message(client_id: str, payload: dict) -> None:
     msg = CommanderMessage.model_validate(payload)
-    scout = _scouts.get(client_id, {}).get(msg.scout_id)
-    if scout is None:
+    coord = _coordinators.get(client_id)
+    if coord is None or not coord.route_message(msg.scout_id, msg.message):
         await _send_error(client_id, f"No active scout with id '{msg.scout_id}'")
-        return
-
-    async def _run() -> None:
-        await scout.handle_question(msg.message)  # type: ignore[attr-defined]
-
-    task = asyncio.create_task(_run())
-    task.add_done_callback(
-        lambda t: logger.error("Scout %s handle_question failed: %s", msg.scout_id, t.exception())
-        if t.exception() else None
-    )
 
 
-async def _execute_scout_arrive(
+def _resolve_deploy_params(
     client_id: str,
-    payload: dict,
-    emit: Callable[[dict], Awaitable[None]],
-) -> str:
-    from .agents.scout import Scout
+    building_id: str,
+    payload_prompt: str | None = None,
+) -> tuple[ScoredBuilding, float, float, float, str]:
+    """Return (building, epicenter_lat, epicenter_lng, magnitude, scenario_prompt).
 
-    msg = DeployScout.model_validate(payload)
-
-    # Retrieve scenario state set by _handle_start_scenario; fall back to a
-    # minimal ScoredBuilding so Task 5 can be tested standalone.
+    Falls back to a minimal stub ScoredBuilding when no scenario is active,
+    so scouts can be tested standalone without first running start_scenario.
+    The prompt is taken from the payload first, then from scenario state.
+    """
     scenario = _scenario_state.get(client_id, {})
     buildings_by_id: dict[str, ScoredBuilding] = scenario.get("buildings_by_id", {})
-    scored = buildings_by_id.get(msg.building_id)
+    scored = buildings_by_id.get(building_id)
 
     if scored is None:
-        # Standalone test mode: construct a minimal ScoredBuilding
         scored = ScoredBuilding(
-            id=msg.building_id,
-            name=f"Building {msg.building_id}",
+            id=building_id,
+            name=f"Building {building_id}",
             lat=37.2284,
             lng=-80.4234,
-            footprint=[[37.2283, -80.4235], [37.2285, -80.4235], [37.2285, -80.4233], [37.2283, -80.4233]],
+            footprint=[
+                [37.2283, -80.4235], [37.2285, -80.4235],
+                [37.2285, -80.4233], [37.2283, -80.4233],
+            ],
             triage_score=50.0,
             color="ORANGE",
             damage_probability=0.5,
@@ -296,46 +318,122 @@ async def _execute_scout_arrive(
     epicenter_lat = scenario.get("epicenter_lat", 37.2284)
     epicenter_lng = scenario.get("epicenter_lng", -80.4234)
     magnitude = scenario.get("magnitude", 6.0)
-
-    scout_id = _next_scout_id(client_id)
-
-    scout = Scout(
-        scout_id=scout_id,
-        building=scored,
-        epicenter_lat=epicenter_lat,
-        epicenter_lng=epicenter_lng,
-        magnitude=magnitude,
-        emit=emit,
+    scenario_prompt = payload_prompt or scenario.get("prompt", "")
+    prompt_source = "payload" if payload_prompt else ("scenario_state" if scenario.get("prompt") else "none")
+    logger.info(
+        "DEPLOY resolved: building=%s magnitude=%.1f prompt_source=%s prompt=%r",
+        scored.id, magnitude, prompt_source, scenario_prompt[:80],
     )
-    _scouts.setdefault(client_id, {})[scout_id] = scout
+    return scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt
 
-    await scout.arrive()
-    return scout_id
+
+async def _execute_scout_arrive(
+    client_id: str,
+    payload: dict,
+    emit: Callable[[dict], Awaitable[None]],
+) -> str:
+    """Deploy a scout and await its arrival — used by the HTTP dev endpoint."""
+    msg = DeployScout.model_validate(payload)
+    scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt = _resolve_deploy_params(
+        client_id, msg.building_id, msg.prompt
+    )
+    coord = Coordinator(emit=emit)
+    return await coord.deploy_and_await(scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
 
 
 async def _handle_deploy_scout(client_id: str, payload: dict) -> None:
-    async def emit(m: dict) -> None:
-        await manager.send_personal_message(client_id, m)
-
-    async def _run() -> None:
-        scout_id = await _execute_scout_arrive(client_id, payload, emit)
-
-    task = asyncio.create_task(_run())
-    task.add_done_callback(
-        lambda t: logger.error("Scout deploy failed: %s", t.exception()) if t.exception() else None,
+    """WebSocket handler: manual scout deploy — fire-and-forget via coordinator."""
+    msg = DeployScout.model_validate(payload)
+    scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt = _resolve_deploy_params(
+        client_id, msg.building_id, msg.prompt
     )
+
+    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
+    coord = _coordinators.get(client_id)
+    if coord is None:
+        coord = Coordinator(emit=emit)
+        _coordinators[client_id] = coord
+
+    coord.manual_deploy(scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
 
 
 async def _handle_request_route(client_id: str, payload: dict) -> None:
+    from .services.route import calculate_ghost_route, calculate_route
+    from .services.route_hazards import build_hazard_zones
+    from .agents.route_agent import RouteAgentContext, run_background_route_analysis
+    from .agents.state import get_shared_state
+
     msg = RequestRoute.model_validate(payload)
-    await manager.send_personal_message(
-        client_id,
-        {
-            "type": "ack",
-            "received_type": msg.type,
-            "building_id": msg.building_id,
-            "message": "Route request received.",
-        },
+    scenario = _scenario_state.get(client_id, {})
+    buildings_by_id: dict[str, ScoredBuilding] = scenario.get("buildings_by_id", {})
+
+    target = buildings_by_id.get(msg.building_id)
+    if target is None:
+        await _send_error(client_id, f"No building with id '{msg.building_id}' in current scenario.")
+        return
+
+    if msg.start is not None:
+        start = (msg.start.lat, msg.start.lng)
+    else:
+        start = (scenario.get("epicenter_lat", target.lat), scenario.get("epicenter_lng", target.lng))
+
+    hazard_buildings = [b for bid, b in buildings_by_id.items() if bid != msg.building_id]
+    epicenter_lat: float = scenario.get("epicenter_lat", target.lat)
+    epicenter_lng: float = scenario.get("epicenter_lng", target.lng)
+    magnitude: float = scenario.get("magnitude", 6.0)
+    scenario_prompt: str = scenario.get("prompt", "")
+
+    shared_state_records = get_shared_state().get_all_records()
+
+    route_kwargs = dict(
+        hazard_buildings=hazard_buildings,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+        shared_state_records=shared_state_records,
+    )
+
+    # Compute safe route and ghost route concurrently.
+    safe_waypoints, ghost_waypoints = await asyncio.gather(
+        calculate_route(start, target, **route_kwargs),
+        calculate_ghost_route(start, target, **route_kwargs),
+    )
+
+    # Emit immediately — frontend gets both routes without waiting for NemoClaw.
+    result = RouteResult(
+        target_building_id=msg.building_id,
+        waypoints=safe_waypoints,
+        ghost_waypoints=ghost_waypoints,
+        agent_validated=False,
+    )
+    await manager.send_personal_message(client_id, result.model_dump())
+
+    # Fire background NemoClaw route analysis — does NOT block the WS handler.
+    # The agent emits an updated route_result with agent_validated=True if it
+    # finds a better path.  No message is emitted if NemoClaw is disabled.
+    zones = build_hazard_zones(
+        buildings=hazard_buildings,
+        shared_state_records=shared_state_records,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+    )
+    ctx = RouteAgentContext(
+        start=start,
+        target_building=target,
+        hazard_buildings=hazard_buildings,
+        current_waypoints=safe_waypoints,
+        ghost_waypoints=ghost_waypoints,
+        zones=zones,
+        epicenter_lat=epicenter_lat,
+        epicenter_lng=epicenter_lng,
+        magnitude=magnitude,
+        scenario_prompt=scenario_prompt,
+    )
+    emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
+    asyncio.create_task(
+        run_background_route_analysis(ctx, emit),
+        name=f"route-agent-{msg.building_id}",
     )
 
 

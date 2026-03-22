@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from backend.models.schemas import BuildingData
+from ..models.schemas import BuildingData
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,10 @@ def _parse_element(el: dict[str, Any]) -> BuildingData | None:
         or "yes"
     )
 
+    # Construction era — used by the triage engine for age-based vulnerability scoring.
+    # Prefer start_date (most common) then construction_date (less common alias).
+    start_date = tags.get("start_date") or tags.get("construction_date") or ""
+
     name = _derive_building_name(tags, el.get("id", "unknown"))
 
     return BuildingData(
@@ -111,6 +115,7 @@ def _parse_element(el: dict[str, Any]) -> BuildingData | None:
         levels=levels,
         height_m=height_m,
         building_type=building_type,
+        start_date=start_date,
     )
 
 

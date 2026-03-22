@@ -1,1 +1,50 @@
+# Secrets & local env
 .env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Bytecode & packaging
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+MANIFEST
+
+# Test & type / lint caches
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.hypothesis/
+
+# Demo / precache (Street View images + panos.json — regenerate with precache)
+cache/
+
+# Logs & local databases
+*.log
+*.sqlite3
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+desktop.ini
+
+# Editors (optional — remove if you commit shared IDE config under backend/)
+.idea/
+.vscode/

@@ -1,4 +1,4 @@
-"""Single-scout execution loop."""
+"""Single-scout execution loop — Task 5."""
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +8,7 @@ import math
 from collections.abc import Awaitable, Callable
 
 from ..models.schemas import (
+    CrossReference,
     ScoutAnalysis,
     ScoutDeployed,
     ScoutReport,
@@ -16,12 +17,14 @@ from ..models.schemas import (
     VLMAnalysis,
 )
 from ..services import annotation, streetview, vlm as vlm_service
+from .state import get_shared_state
 
 logger = logging.getLogger(__name__)
 
-# Cardinal keywords that map to facing values for the handle_question heuristic
+# Cardinal keyword map for direction detection in handle_question.
+# "front" is aliased to N so "check the front" navigates to the first viewpoint.
 _DIRECTION_KEYWORDS: dict[str, list[str]] = {
-    "N":  ["north"],
+    "N":  ["north", "front"],
     "S":  ["south"],
     "E":  ["east"],
     "W":  ["west"],
@@ -29,7 +32,6 @@ _DIRECTION_KEYWORDS: dict[str, list[str]] = {
     "NW": ["northwest", "north-west"],
     "SE": ["southeast", "south-east"],
     "SW": ["southwest", "south-west"],
-    "N":  ["north", "front"],   # "front" defaults to first viewpoint facing
 }
 
 
@@ -42,24 +44,40 @@ class Scout:
         epicenter_lng: float,
         magnitude: float,
         emit: Callable[[dict], Awaitable[None]],
+        scenario_prompt: str = "",
     ) -> None:
         self.scout_id = scout_id
         self.building = building
         self.viewpoints: list[ScoutViewpoint] = []
         self.current_viewpoint_index: int = 0
-        self.conversation_history: list[dict] = []
         self._epicenter_lat = epicenter_lat
         self._epicenter_lng = epicenter_lng
         self._magnitude = magnitude
         self._emit = emit
+        self._scenario_prompt = scenario_prompt
         self._current_image_bytes: bytes | None = None
+        # Text summaries of completed analyses — injected as context for follow-up questions.
+        self._analysis_summaries: list[str] = []
+        # Track emitted cross-reference pairs so we don't duplicate (from_scout, to_scout).
+        self._emitted_cross_refs: set[tuple[str, str]] = set()
 
     # ------------------------------------------------------------------
-    # Public methods
+    # Public interface
     # ------------------------------------------------------------------
 
     async def arrive(self) -> None:
-        """Calculate viewpoints, emit scout_deployed, analyze first viewpoint, emit report."""
+        """Full arrival sequence:
+        1. Calculate viewpoints.
+        2. Emit scout_deployed(arriving).
+        3. Analyze the epicenter-facing viewpoint.
+        4. Emit scout_report.
+        5. Emit scout_deployed(active).
+        """
+        logger.info(
+            "SCOUT %s arriving at building=%s prompt=%r",
+            self.scout_id, self.building.id,
+            self._scenario_prompt[:80] if self._scenario_prompt else "(none)",
+        )
         self.viewpoints = streetview.calculate_viewpoints(
             self.building.footprint,
             self._epicenter_lat,
@@ -67,7 +85,11 @@ class Scout:
         )
 
         if not self.viewpoints:
-            logger.error("Scout %s: no viewpoints calculated for building %s", self.scout_id, self.building.id)
+            logger.error(
+                "Scout %s: no viewpoints for building %s",
+                self.scout_id,
+                self.building.id,
+            )
             return
 
         await self._emit(
@@ -82,8 +104,36 @@ class Scout:
         report = await self.analyze_viewpoint(self.viewpoints[0])
         await self._emit(report.model_dump())
 
+        # Signal that the scout has completed its initial assessment and is ready
+        # for commander questions or further viewpoint advances.
+        await self._emit(
+            ScoutDeployed(
+                scout_id=self.scout_id,
+                building_id=self.building.id,
+                building_name=self.building.name,
+                status="active",
+            ).model_dump()
+        )
+
     async def analyze_viewpoint(self, viewpoint: ScoutViewpoint) -> ScoutReport:
-        """Fetch Street View image, call VLM, annotate, return ScoutReport."""
+        """Core analysis loop for a single viewpoint.
+
+        Flow:
+          1. Query SharedState for cross-reference context from nearby scouts.
+          2. Fetch Street View image.
+          3. Call VLM with cross-ref-enriched system prompt.
+          4. Write external_risks to SharedState.
+          5. Emit cross_reference messages for any newly-relevant nearby findings.
+          6. Annotate image and return ScoutReport.
+        """
+        state = get_shared_state()
+
+        cross_ref_context = state.format_cross_ref_context(
+            self.building.lat,
+            self.building.lng,
+            exclude_scout_id=self.scout_id,
+        )
+
         image_bytes = await streetview.fetch_street_view_image(
             viewpoint.lat,
             viewpoint.lng,
@@ -92,39 +142,70 @@ class Scout:
         )
         self._current_image_bytes = image_bytes
 
-        system_prompt = self._build_system_prompt(viewpoint)
-        vlm_result = await vlm_service.analyze_image(
-            image_bytes,
-            system_prompt,
-            self.conversation_history,
+        system_prompt = self._build_system_prompt(viewpoint, cross_ref_context=cross_ref_context)
+        vlm_result = await vlm_service.analyze_image(image_bytes, system_prompt)
+
+        # Store SITREP entry for conversation context in handle_question.
+        critical_findings = [f for f in vlm_result.findings if f.severity == "CRITICAL"]
+        self._analysis_summaries.append(
+            f"[{viewpoint.facing} face | {vlm_result.risk_level}] "
+            f"{len(vlm_result.findings)} finding(s)"
+            + (f", {len(critical_findings)} CRITICAL" if critical_findings else "")
+            + f" | Action: {vlm_result.recommended_action[:140]}"
         )
 
-        # Persist assistant turn to conversation history
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": vlm_result.model_dump_json(),
-        })
+        # Persist external risks for other scouts to discover via cross-reference.
+        if vlm_result.external_risks:
+            state.write_findings(
+                scout_id=self.scout_id,
+                building_id=self.building.id,
+                building_name=self.building.name,
+                lat=self.building.lat,
+                lng=self.building.lng,
+                external_risks=vlm_result.external_risks,
+            )
+
+        # Emit cross_reference messages for nearby findings from other scouts.
+        nearby = state.query_nearby(
+            self.building.lat,
+            self.building.lng,
+            exclude_scout_id=self.scout_id,
+        )
+        for record in nearby:
+            key = (record.scout_id, self.scout_id)
+            if key not in self._emitted_cross_refs:
+                finding, impact, resolution = await self._enrich_cross_ref(record)
+                await self._emit(
+                    CrossReference(
+                        from_scout=record.scout_id,
+                        to_scout=self.scout_id,
+                        finding=finding,
+                        impact=impact,
+                        resolution=resolution,
+                    ).model_dump()
+                )
+                self._emitted_cross_refs.add(key)
 
         annotated_bytes = await annotation.annotate_image(image_bytes, vlm_result.findings)
         image_b64 = base64.b64encode(annotated_bytes).decode()
-
-        scout_analysis = self._vlm_to_scout_analysis(vlm_result)
-        narrative = f"[{vlm_result.risk_level}] {vlm_result.recommended_action}"
 
         return ScoutReport(
             scout_id=self.scout_id,
             building_id=self.building.id,
             viewpoint=viewpoint,
-            analysis=scout_analysis,
+            analysis=self._vlm_to_scout_analysis(vlm_result),
             annotated_image_b64=image_b64,
-            narrative=narrative,
+            narrative=f"[{vlm_result.risk_level}] {vlm_result.recommended_action}",
         )
 
     async def advance(self) -> ScoutReport | None:
-        """Move to next viewpoint, analyze it, emit report. Returns None if exhausted."""
+        """Move to the next viewpoint, analyze it, emit report.
+
+        Returns None if all viewpoints have been visited.
+        """
         next_index = self.current_viewpoint_index + 1
         if next_index >= len(self.viewpoints):
-            logger.debug("Scout %s: no more viewpoints", self.scout_id)
+            logger.debug("Scout %s: no more viewpoints to advance to", self.scout_id)
             return None
 
         self.current_viewpoint_index = next_index
@@ -133,14 +214,17 @@ class Scout:
         return report
 
     async def handle_question(self, message: str) -> ScoutReport:
-        """Handle a commander question. Advances to a new viewpoint if the question asks
-        about a direction not yet visited, otherwise re-analyzes the current viewpoint
-        with the full conversation context.
-        """
-        # Append the commander's question to history
-        self.conversation_history.append({"role": "user", "content": message})
+        """Handle a commander question.
 
-        # Heuristic: detect if the question requests a specific unvisited facing
+        If the question requests a specific cardinal direction that hasn't been
+        visited yet, navigate there and emit a new report.
+
+        Otherwise, re-analyze the current viewpoint. Previous analysis summaries
+        are injected into the system prompt so the VLM has full conversation
+        context — avoiding the multi-turn message-format requirements of the
+        Anthropic API while preserving meaningful context.
+        """
+        # Heuristic: advance to a specific facing if the commander requests one.
         requested_facing = self._detect_requested_facing(message)
         if requested_facing:
             target_idx = self._find_viewpoint_by_facing(requested_facing)
@@ -150,7 +234,7 @@ class Scout:
                 await self._emit(report.model_dump())
                 return report
 
-        # Re-analyze current viewpoint with accumulated conversation history
+        # Re-analyze the current viewpoint with the commander's question as context.
         current_vp = self.viewpoints[self.current_viewpoint_index]
         image_bytes = self._current_image_bytes
         if image_bytes is None:
@@ -159,31 +243,43 @@ class Scout:
             )
             self._current_image_bytes = image_bytes
 
-        system_prompt = self._build_system_prompt(current_vp)
+        state = get_shared_state()
+        cross_ref_context = state.format_cross_ref_context(
+            self.building.lat, self.building.lng, exclude_scout_id=self.scout_id,
+        )
+        system_prompt = self._build_system_prompt(current_vp, cross_ref_context=cross_ref_context)
+
+        # Inject running SITREP log into the system prompt — preserves field
+        # context without requiring multi-turn image messages to the API.
+        if self._analysis_summaries:
+            prev = "\n".join(f"  {s}" for s in self._analysis_summaries[-4:])
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                f"RUNNING SITREP — prior assessments at {self.building.name}:\n{prev}\n"
+                f"Commander question (answer this in recommended_action and findings): {message}"
+            )
+
         vlm_result = await vlm_service.analyze_image(
             image_bytes,
             system_prompt,
-            self.conversation_history,
+            user_message=message,
         )
 
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": vlm_result.model_dump_json(),
-        })
+        self._analysis_summaries.append(
+            f"[{current_vp.facing} follow-up] Q='{message[:60]}' "
+            f"risk={vlm_result.risk_level}, action={vlm_result.recommended_action[:80]}"
+        )
 
         annotated_bytes = await annotation.annotate_image(image_bytes, vlm_result.findings)
         image_b64 = base64.b64encode(annotated_bytes).decode()
-
-        scout_analysis = self._vlm_to_scout_analysis(vlm_result)
-        narrative = f"[{vlm_result.risk_level}] {vlm_result.recommended_action}"
 
         report = ScoutReport(
             scout_id=self.scout_id,
             building_id=self.building.id,
             viewpoint=current_vp,
-            analysis=scout_analysis,
+            analysis=self._vlm_to_scout_analysis(vlm_result),
             annotated_image_b64=image_b64,
-            narrative=narrative,
+            narrative=f"[{vlm_result.risk_level}] {vlm_result.recommended_action}",
         )
         await self._emit(report.model_dump())
         return report
@@ -192,7 +288,87 @@ class Scout:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _build_system_prompt(self, viewpoint: ScoutViewpoint) -> str:
+    async def _enrich_cross_ref(self, record: object) -> tuple[str, str, str | None]:
+        """Return (finding, impact, resolution) for a cross-reference record.
+
+        If NemoClaw is enabled and available, calls the aegis-crossref agent to
+        produce richer narrative text. Falls back to ICS-format template strings
+        on failure or when NemoClaw is disabled (default).
+        """
+        risk_type: str = record.risk_type  # type: ignore[attr-defined]
+        direction: str = record.direction  # type: ignore[attr-defined]
+        range_m: float = record.estimated_range_m  # type: ignore[attr-defined]
+        from_building: str = getattr(record, "building_name", record.building_id)  # type: ignore[attr-defined]
+
+        # Determine if this hazard migrates underground (gas/chemical follow utility corridors)
+        _UNDERGROUND_TYPES = {"gas", "chemical", "fuel", "utility"}
+        is_underground = any(t in risk_type.lower() for t in _UNDERGROUND_TYPES)
+
+        if is_underground:
+            migration_detail = (
+                f"This hazard migrates via underground utility corridors — not limited to line-of-sight. "
+                f"Air-monitor foundation penetrations, storm drain access, and manholes within {range_m:.0f}m "
+                f"before committing any rescue assets."
+            )
+            resolution_text = (
+                f"Coordinate with Scout {record.scout_id} sector for real-time LEL readings. "  # type: ignore[attr-defined]
+                f"Establish exclusion zone {range_m:.0f}m radius until utility confirms shut-off "
+                f"and meters read below 10% LEL. All teams stand fast pending utility notification."
+            )
+        else:
+            migration_detail = (
+                f"Direct exposure hazard within {range_m:.0f}m radius. "
+                f"Assess shared approach corridor and exposure zone before approach."
+            )
+            resolution_text = (
+                f"Stage minimum {range_m:.0f}m from shared boundary with {from_building}. "
+                f"Confirm with Scout {record.scout_id} sector before committing rescue assets to shared corridor."  # type: ignore[attr-defined]
+            )
+
+        template_finding = (
+            f"Scout {record.scout_id} [{from_building}] confirms {risk_type} hazard "  # type: ignore[attr-defined]
+            f"projecting {direction} — ~{range_m:.0f}m exposure radius. {migration_detail}"
+        )
+        template_impact = (
+            f"{self.building.name} is within the {risk_type} hazard projection zone "
+            f"from {from_building} ({range_m:.0f}m radius). "
+            f"Approach corridor on the {direction} side may be compromised. "
+            f"Request utility coordination and safety officer notification before team entry."
+        )
+
+        try:
+            from ..services.nemoclaw_client import build_crossref_payload, get_nemoclaw_client
+            nc = await get_nemoclaw_client()
+            if nc is None:
+                return template_finding, template_impact, None
+
+            payload = build_crossref_payload(
+                from_scout_id=record.scout_id,  # type: ignore[attr-defined]
+                to_scout_id=self.scout_id,
+                risk_type=record.risk_type,  # type: ignore[attr-defined]
+                direction=record.direction,  # type: ignore[attr-defined]
+                from_building_id=record.building_id,  # type: ignore[attr-defined]
+                from_building_name=f"Building {record.building_id}",  # type: ignore[attr-defined]
+                to_building_name=self.building.name,
+                estimated_range_m=record.estimated_range_m,  # type: ignore[attr-defined]
+            )
+            result = await nc.call_agent("aegis-crossref", payload)
+            if result is None:
+                return template_finding, template_impact, None
+
+            finding = str(result.get("finding", template_finding))
+            impact = str(result.get("impact", template_impact))
+            resolution = result.get("resolution")
+            return finding, impact, str(resolution) if resolution else None
+        except Exception as exc:
+            logger.warning("NemoClaw crossref enrichment failed: %s", exc)
+            return template_finding, template_impact, None
+
+    def _build_system_prompt(
+        self,
+        viewpoint: ScoutViewpoint,
+        cross_ref_context: str = "",
+    ) -> str:
         return vlm_service.build_system_prompt(
             facing=viewpoint.facing,
             building_name=self.building.name,
@@ -200,6 +376,13 @@ class Scout:
             bearing=self._bearing_to_epicenter(),
             distance_m=self._distance_to_epicenter(),
             magnitude=self._magnitude,
+            material=self.building.material,
+            height_m=self.building.height_m,
+            triage_score=self.building.triage_score,
+            color=self.building.color,
+            damage_probability=self.building.damage_probability,
+            cross_reference_context=cross_ref_context,
+            scenario_prompt=self._scenario_prompt,
         )
 
     def _vlm_to_scout_analysis(self, vlm_result: VLMAnalysis) -> ScoutAnalysis:
@@ -213,15 +396,17 @@ class Scout:
     def _distance_to_epicenter(self) -> float:
         """Haversine distance in metres from building centroid to epicenter."""
         R = 6_371_000.0
-        lat1, lng1 = math.radians(self.building.lat), math.radians(self.building.lng)
-        lat2, lng2 = math.radians(self._epicenter_lat), math.radians(self._epicenter_lng)
+        lat1 = math.radians(self.building.lat)
+        lat2 = math.radians(self._epicenter_lat)
+        lng1 = math.radians(self.building.lng)
+        lng2 = math.radians(self._epicenter_lng)
         dlat = lat2 - lat1
         dlng = lng2 - lng1
         a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlng / 2) ** 2
         return R * 2 * math.asin(math.sqrt(a))
 
     def _bearing_to_epicenter(self) -> float:
-        """Compass bearing (0–360) from building to epicenter."""
+        """Compass bearing (0–360) from building centroid toward epicenter."""
         lat1 = math.radians(self.building.lat)
         lat2 = math.radians(self._epicenter_lat)
         dlng = math.radians(self._epicenter_lng - self.building.lng)
@@ -231,12 +416,11 @@ class Scout:
 
     def _epicenter_cardinal(self) -> str:
         """Cardinal direction from building toward the epicenter."""
-        bearing = self._bearing_to_epicenter()
         cardinals = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-        return cardinals[round(bearing / 45) % 8]
+        return cardinals[round(self._bearing_to_epicenter() / 45) % 8]
 
     def _detect_requested_facing(self, message: str) -> str | None:
-        """Return a facing string if the message mentions a specific direction."""
+        """Return a facing string if the message mentions a cardinal direction."""
         msg_lower = message.lower()
         for facing, keywords in _DIRECTION_KEYWORDS.items():
             if any(kw in msg_lower for kw in keywords):
@@ -244,7 +428,7 @@ class Scout:
         return None
 
     def _find_viewpoint_by_facing(self, facing: str) -> int | None:
-        """Return index of the first viewpoint with the given facing, or None."""
+        """Return the index of the first viewpoint with the given facing, or None."""
         for i, vp in enumerate(self.viewpoints):
             if vp.facing == facing:
                 return i
