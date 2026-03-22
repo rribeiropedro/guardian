@@ -231,6 +231,10 @@ async def _handle_start_scenario(client_id: str, payload: dict) -> None:
     if old_coord:
         old_coord.cancel_all()
 
+    # Reset shared cross-reference state so prior scenario findings don't bleed in.
+    from .agents.state import get_shared_state
+    get_shared_state().reset_for_scenario(scenario.get("scenario_id"))
+
     coord = Coordinator(emit=emit)
     _coordinators[client_id] = coord
 
@@ -374,7 +378,7 @@ async def _handle_request_route(client_id: str, payload: dict) -> None:
     # Hazard buildings: all scored buildings except the target
     hazard_buildings = [b for bid, b in buildings_by_id.items() if bid != msg.building_id]
 
-    waypoints = calculate_route(start, target, hazard_buildings)
+    waypoints = await calculate_route(start, target, hazard_buildings)
 
     result = RouteResult(target_building_id=msg.building_id, waypoints=waypoints)
     await manager.send_personal_message(client_id, result.model_dump())
