@@ -5,7 +5,7 @@ import type { Waypoint } from '../_lib/types'
 
 const HAZARD_COLORS = {
   blocked: '#ef4444',
-  overhead: '#f97316',
+  overhead: '#3B82F6',
   turn: '#22c55e',
   arrival: '#3b82f6',
   intel: '#a855f7',
@@ -239,7 +239,7 @@ function NoPanoFallback({ waypoint }: { waypoint?: Waypoint }) {
         <div>Heading: {waypoint.heading.toFixed(1)}°</div>
         <div>Lat: {waypoint.lat.toFixed(5)}  Lng: {waypoint.lng.toFixed(5)}</div>
         {waypoint.hazard && (
-          <div className="mt-2 text-orange-400">{waypoint.hazard.label}</div>
+          <div className="mt-2 text-blue-400">{waypoint.hazard.label}</div>
         )}
       </div>
     </div>
