@@ -197,7 +197,8 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
         "magnitude": magnitude,
         "time_of_day": time_of_day,
         "buildings_by_id": {b.id: b for b in scored},
-        "top_buildings": [b.id for b in scored[:3]],
+        "top_buildings": [b.id for b in scored[:4]],
+        "all_building_ids": [b.id for b in scored],
     }
     logger.info(
         "SCENARIO stored: id=%s magnitude=%.1f time=%s buildings=%d prompt=%r",
@@ -243,9 +244,11 @@ async def _handle_start_scenario(client_id: str, payload: dict) -> None:
     # doesn't permanently downgrade this scenario's VLM quality.
     reset_haiku_mode()
 
+    # Pass ALL scored buildings so the coordinator can assign buildings[3:] to
+    # per-scout coverage queues.  The coordinator handles the top-3 split internally.
     top_buildings = [
         scenario["buildings_by_id"][bid]
-        for bid in scenario["top_buildings"]
+        for bid in scenario["all_building_ids"]
         if bid in scenario["buildings_by_id"]
     ]
 

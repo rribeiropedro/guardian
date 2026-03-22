@@ -44,9 +44,21 @@ interface Props {
 
 export default function ScoutPanel({ scout, isActive, onFocus, onRequestRoute, onClose }: Props) {
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Start true so the first report scrolls into view automatically.
+  const isAtBottomRef = useRef(true)
 
+  function onScroll() {
+    const el = scrollContainerRef.current
+    if (!el) return
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50
+  }
+
+  // Only autoscroll when the user is already at (or near) the bottom.
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (isAtBottomRef.current) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [scout.messages])
 
   return (
@@ -90,7 +102,11 @@ export default function ScoutPanel({ scout, isActive, onFocus, onRequestRoute, o
       </div>
 
       {/* Reports */}
-      <div className="flex-1 overflow-y-auto chat-scroll px-3 py-3 space-y-3">
+      <div
+        ref={scrollContainerRef}
+        onScroll={onScroll}
+        className="flex-1 overflow-y-auto chat-scroll px-3 py-3 space-y-3"
+      >
         {scout.messages.length === 0 && (
           <div className="text-center text-xs text-slate-600 font-mono mt-8 arriving-pulse">
             Scout deploying…
