@@ -1,15 +1,18 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import type {
   Building,
+  Scout,
+  ChatMessage,
   ServerMessage,
   Waypoint,
 } from '../_lib/types'
 import { useWebSocket } from '../_lib/useWebSocket'
 import ScenarioInput from './ScenarioInput'
+import ScoutPanel from './ScoutPanel'
 import RouteWalkthrough from './RouteWalkthrough'
 import LocationSearch from './LocationSearch'
 
@@ -21,12 +24,15 @@ export default function CommandCenter() {
   const router = useRouter()
   const autoNavTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [buildings, setBuildings] = useState<Building[]>([])
-  const [pinnedReds, setPinnedReds] = useState<Building[]>([])
+  const [scouts, setScouts] = useState<Map<string, Scout>>(new Map())
+  const [activeScoutId, setActiveScoutId] = useState<string | null>(null)
   const [activeBuilding, setActiveBuilding] = useState<Building | null>(null)
   const [scenarioRunning, setScenarioRunning] = useState(false)
   const [route, setRoute] = useState<Waypoint[] | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [scenarioCenter, setScenarioCenter] = useState<{ lat: number; lng: number }>(VT_CENTER)
+  const [crossRefLog, setCrossRefLog] = useState<string[]>([])
+  const [autoTransitionPending, setAutoTransitionPending] = useState(false)
 
   const clearAutoNavTimeout = useCallback(() => {
     if (autoNavTimeoutRef.current) {
@@ -36,18 +42,13 @@ export default function CommandCenter() {
   }, [])
 
   const handleGoFirstPerson = useCallback(
-    (building: Building, triageBuildings?: Building[]) => {
+    (building: Building) => {
       try {
         // Persist triage colors/footprints so first-person view can render the same overlay.
-        const sourceBuildings = triageBuildings ?? buildings
-        const triageSnapshot = sourceBuildings.map((b) => ({
+        const triageSnapshot = buildings.map((b) => ({
           id: b.id,
-          name: b.name,
           color: b.color,
           height_m: b.height_m,
-          material: b.material,
-          triage_score: b.triage_score,
-          damage_probability: b.damage_probability,
           footprint: b.footprint,
         }))
         sessionStorage.setItem('aegis_triage_buildings', JSON.stringify(triageSnapshot))
@@ -70,21 +71,81 @@ export default function CommandCenter() {
     switch (msg.type) {
       case 'triage_result': {
         setBuildings(msg.buildings)
-        // Accumulate reds — they never get removed once seen
-        setPinnedReds((prev) => {
-          const existingIds = new Set(prev.map((b) => b.id))
-          const newReds = msg.buildings.filter((b) => b.color === 'RED' && !existingIds.has(b.id))
-          return newReds.length > 0 ? [...prev, ...newReds] : prev
-        })
         setScenarioRunning(false)
         clearAutoNavTimeout()
         if (msg.buildings.length > 0) {
           const target = msg.buildings[0]
           setActiveBuilding(target)
+          setAutoTransitionPending(true)
           autoNavTimeoutRef.current = setTimeout(() => {
-            handleGoFirstPerson(target, msg.buildings)
+            setAutoTransitionPending(false)
+            handleGoFirstPerson(target)
           }, 5000)
         }
+        break
+      }
+
+      case 'scout_deployed': {
+        setScouts((prev) => {
+          const next = new Map(prev)
+          const existing = next.get(msg.scout_id)
+          next.set(msg.scout_id, {
+            scout_id: msg.scout_id,
+            building_id: msg.building_id,
+            building_name: msg.building_name,
+            status: msg.status,
+            messages: existing?.messages ?? [],
+            viewpoint: existing?.viewpoint,
+          })
+          return next
+        })
+        // Auto-focus the first deployed scout
+        setActiveScoutId((prev) => prev ?? msg.scout_id)
+        break
+      }
+
+      case 'scout_report': {
+        const chatMsg: ChatMessage = {
+          role: 'scout',
+          text: msg.narrative,
+          image_b64: msg.annotated_image_b64,
+          viewpoint: msg.viewpoint,
+          analysis: msg.analysis,
+          timestamp: Date.now(),
+        }
+        setScouts((prev) => {
+          const next = new Map(prev)
+          const scout = next.get(msg.scout_id)
+          if (scout) {
+            next.set(msg.scout_id, {
+              ...scout,
+              status: 'active',
+              messages: [...scout.messages, chatMsg],
+              viewpoint: msg.viewpoint,
+            })
+          }
+          return next
+        })
+        break
+      }
+
+      case 'cross_reference': {
+        const line = `SCOUT-${msg.from_scout.toUpperCase()} → SCOUT-${msg.to_scout.toUpperCase()}: ${msg.finding}`
+        setCrossRefLog((prev) => [line, ...prev.slice(0, 19)])
+        // Inject a system message into both scouts' chats
+        const crossMsg = (): ChatMessage => ({
+          role: 'scout',
+          text: `[CROSS-REF from ${msg.from_scout.toUpperCase()}] ${msg.finding}\nImpact: ${msg.impact}${msg.resolution ? `\nResolution: ${msg.resolution}` : ''}`,
+          timestamp: Date.now(),
+        })
+        setScouts((prev) => {
+          const next = new Map(prev)
+          const to = next.get(msg.to_scout)
+          if (to) {
+            next.set(msg.to_scout, { ...to, messages: [...to.messages, crossMsg()] })
+          }
+          return next
+        })
         break
       }
 
@@ -111,10 +172,13 @@ export default function CommandCenter() {
   const handleScenarioSubmit = useCallback(
     (prompt: string, radius_m: number) => {
       clearAutoNavTimeout()
-      // Keep red buildings visible during the loading transition
-      setBuildings((prev) => prev.filter((b) => b.color === 'RED'))
+      setBuildings([])
+      setScouts(new Map())
+      setActiveScoutId(null)
       setActiveBuilding(null)
       setRoute(null)
+      setCrossRefLog([])
+      setAutoTransitionPending(false)
       setScenarioRunning(true)
       setMapCenter([scenarioCenter.lng, scenarioCenter.lat])
       send({ type: 'start_scenario', prompt, center: scenarioCenter, radius_m })
@@ -123,22 +187,51 @@ export default function CommandCenter() {
   )
 
   const handleBuildingClick = useCallback((building: Building) => {
-    clearAutoNavTimeout()
     setActiveBuilding(building)
     // Use the selected building as the next scenario epicenter.
     setScenarioCenter({ lat: building.lat, lng: building.lng })
-  }, [clearAutoNavTimeout])
-
-  const handleMapDoubleClick = useCallback((lat: number, lng: number) => {
-    setScenarioCenter({ lat, lng })
   }, [])
 
-  // Always include pinned reds even when buildings is cleared/updated
-  const displayBuildings = useMemo(() => {
-    const currentIds = new Set(buildings.map((b) => b.id))
-    const orphanReds = pinnedReds.filter((r) => !currentIds.has(r.id))
-    return orphanReds.length > 0 ? [...buildings, ...orphanReds] : buildings
-  }, [buildings, pinnedReds])
+  const handleCommanderMessage = useCallback(
+    (scoutId: string, message: string) => {
+      // Optimistically add to chat
+      const chatMsg: ChatMessage = { role: 'commander', text: message, timestamp: Date.now() }
+      setScouts((prev) => {
+        const next = new Map(prev)
+        const scout = next.get(scoutId)
+        if (scout) next.set(scoutId, { ...scout, messages: [...scout.messages, chatMsg] })
+        return next
+      })
+      send({ type: 'commander_message', scout_id: scoutId, message })
+    },
+    [send],
+  )
+
+  const handleRequestRoute = useCallback(
+    (buildingId: string) => {
+      const start = mapCenter ? { lat: mapCenter[1], lng: mapCenter[0] } : undefined
+      send({ type: 'request_route', building_id: buildingId, ...(start ? { start } : {}) })
+    },
+    [send, mapCenter],
+  )
+
+  const handleDeployScout = useCallback(
+    (buildingId: string) => {
+      send({ type: 'deploy_scout', building_id: buildingId })
+    },
+    [send],
+  )
+
+  const handleCloseScout = useCallback((scoutId: string) => {
+    setScouts((prev) => {
+      const next = new Map(prev)
+      next.delete(scoutId)
+      return next
+    })
+    setActiveScoutId((prev) => (prev === scoutId ? null : prev))
+  }, [])
+
+  const scoutList = Array.from(scouts.values())
 
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-[#0a0a0f]">
@@ -146,12 +239,9 @@ export default function CommandCenter() {
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh' }}>
         <MapView
           center={mapCenter}
-          buildings={displayBuildings}
-          pinnedReds={pinnedReds}
+          buildings={buildings}
           activeBuilding={activeBuilding ?? undefined}
           onBuildingClick={handleBuildingClick}
-          onMapDoubleClick={handleMapDoubleClick}
-          epicenter={[scenarioCenter.lng, scenarioCenter.lat]}
         />
       </div>
 
@@ -182,6 +272,38 @@ export default function CommandCenter() {
           <BuildingSummary buildings={buildings} />
         )}
       </div>
+
+      {/* ── Building detail popup ── */}
+      {activeBuilding && !autoTransitionPending && (
+        <BuildingPopup
+          building={activeBuilding}
+          onDeploy={() => { handleDeployScout(activeBuilding.id); setActiveBuilding(null) }}
+          onGoFirstPerson={() => handleGoFirstPerson(activeBuilding)}
+          onClose={() => setActiveBuilding(null)}
+        />
+      )}
+
+      {/* ── Cross-reference feed (top-right, above scout panels) ── */}
+      {crossRefLog.length > 0 && scoutList.length === 0 && (
+        <CrossRefFeed log={crossRefLog} />
+      )}
+
+      {/* ── Scout panels (right rail) ── */}
+      {scoutList.length > 0 && (
+        <div className="absolute right-0 top-0 bottom-0 z-20 flex overflow-hidden">
+          {scoutList.map((scout) => (
+            <ScoutPanel
+              key={scout.scout_id}
+              scout={scout}
+              isActive={scout.scout_id === activeScoutId}
+              onFocus={() => setActiveScoutId(scout.scout_id)}
+              onMessage={handleCommanderMessage}
+              onRequestRoute={handleRequestRoute}
+              onClose={() => handleCloseScout(scout.scout_id)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* ── Route Walkthrough overlay ── */}
       {route && (
@@ -235,3 +357,86 @@ function BuildingSummary({ buildings }: { buildings: Building[] }) {
   )
 }
 
+function BuildingPopup({
+  building,
+  onDeploy,
+  onGoFirstPerson,
+  onClose,
+}: {
+  building: Building
+  onDeploy: () => void
+  onGoFirstPerson: () => void
+  onClose: () => void
+}) {
+  const COLOR_CLASSES: Record<string, string> = {
+    RED: 'text-red-400 border-red-500/30 bg-red-500/10',
+    ORANGE: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
+    YELLOW: 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10',
+    GREEN: 'text-green-400 border-green-500/30 bg-green-500/10',
+  }
+
+  return (
+    <div className="absolute bottom-28 left-4 z-20 w-72 rounded-2xl border border-white/10 bg-[rgba(8,10,18,0.95)] backdrop-blur-md p-4 shadow-2xl">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">{building.name || `Building ${building.id}`}</h3>
+          <span className={`inline-block mt-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${COLOR_CLASSES[building.color]}`}>
+            {building.color} · Score {building.triage_score.toFixed(0)}
+          </span>
+        </div>
+        <button onClick={onClose} className="text-slate-600 hover:text-slate-300 transition-colors">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="space-y-1 text-xs font-mono text-slate-400 mb-4">
+        <div className="flex justify-between">
+          <span>Damage probability</span>
+          <span className="text-slate-200">{(building.damage_probability * 100).toFixed(0)}%</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Est. occupancy</span>
+          <span className="text-slate-200">{building.estimated_occupancy}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Material</span>
+          <span className="text-slate-200">{building.material}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Height</span>
+          <span className="text-slate-200">{building.height_m.toFixed(0)} m</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          onClick={onDeploy}
+          className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono font-bold tracking-wider transition-colors"
+        >
+          DEPLOY SCOUT →
+        </button>
+        <button
+          onClick={onGoFirstPerson}
+          className="w-full py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-mono font-bold tracking-wider transition-colors"
+        >
+          GO FIRST PERSON
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CrossRefFeed({ log }: { log: string[] }) {
+  return (
+    <div className="absolute top-4 right-4 z-10 w-80 max-h-48 overflow-y-auto chat-scroll rounded-xl border border-yellow-500/20 bg-[rgba(8,10,18,0.85)] backdrop-blur-md p-3">
+      <div className="text-[10px] font-mono text-yellow-400 font-bold tracking-wider mb-2">CROSS-REF FEED</div>
+      {log.map((line, i) => (
+        <div key={i} className="text-[10px] font-mono text-slate-400 leading-relaxed mb-1">
+          {line}
+        </div>
+      ))}
+    </div>
+  )
+}

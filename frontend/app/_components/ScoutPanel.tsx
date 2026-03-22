@@ -56,7 +56,7 @@ export default function ScoutPanel({ scout, isActive, onFocus, onMessage, onRequ
 
   return (
     <div
-      className={`scout-panel-enter flex flex-col w-full h-full rounded-xl border transition-colors shadow-2xl ${
+      className={`scout-panel-enter flex flex-col w-[380px] shrink-0 h-full border-l transition-colors ${
         isActive ? 'border-blue-500/40 bg-[rgba(8,12,24,0.95)]' : 'border-white/[0.06] bg-[rgba(8,10,18,0.9)]'
       } backdrop-blur-md`}
       onClick={onFocus}
