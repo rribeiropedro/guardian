@@ -385,17 +385,17 @@ export default function MapView({
           type: "fill-extrusion",
           minzoom: 13,
           paint: {
-            // Keep geometry present for depth/clicking, but avoid full color wash.
-            "fill-extrusion-color": "#334155",
-            "fill-extrusion-height": ["get", "height_m"],
-            "fill-extrusion-base": 0,
-            "fill-extrusion-opacity": 0.28,
-            "fill-extrusion-vertical-gradient": true,
+            "fill-extrusion-color": ["get", "color_hex"],
+            "fill-extrusion-height": ["+", ["get", "height_m"], 25],
+            "fill-extrusion-base": ["get", "height_m"],
+            "fill-extrusion-opacity": 0.85,
+            "fill-extrusion-vertical-gradient": false,
           },
         },
         firstSymbolId,
       );
 
+      // Keep triage-markers source for click interaction, but invisible
       map.addSource("triage-markers", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -407,10 +407,8 @@ export default function MapView({
         type: "circle",
         paint: {
           "circle-color": ["get", "color_hex"],
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 6, 18, 18],
-          "circle-opacity": 0.2,
-          "circle-blur": 0.75,
-          "circle-stroke-width": 0,
+          "circle-radius": 0,
+          "circle-opacity": 0,
         },
       });
 
@@ -420,10 +418,8 @@ export default function MapView({
         type: "circle",
         paint: {
           "circle-color": ["get", "color_hex"],
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 2.75, 18, 8],
-          "circle-opacity": 0.95,
-          "circle-stroke-color": "#f8fafc",
-          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 13, 1.1, 18, 1.8],
+          "circle-radius": 8,
+          "circle-opacity": 0,
         },
       });
 
@@ -1109,6 +1105,29 @@ export default function MapView({
       duration: 1800,
     });
   }, [center, flyMode]);
+
+  // Toggle between color overlay (bird's eye) and dot markers (fly mode)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (flyMode) {
+      map.setPaintProperty("triage-buildings-3d", "fill-extrusion-base", 0);
+      map.setPaintProperty("triage-buildings-3d", "fill-extrusion-height", ["get", "height_m"]);
+      map.setPaintProperty("triage-buildings-3d", "fill-extrusion-opacity", 0.28);
+      map.setPaintProperty("triage-markers-circle", "circle-opacity", 0.95);
+      map.setPaintProperty("triage-markers-circle", "circle-radius", ["interpolate", ["linear"], ["zoom"], 13, 2.75, 18, 8]);
+      map.setPaintProperty("triage-markers-glow", "circle-opacity", 0.2);
+      map.setPaintProperty("triage-markers-glow", "circle-radius", ["interpolate", ["linear"], ["zoom"], 13, 6, 18, 18]);
+    } else {
+      map.setPaintProperty("triage-buildings-3d", "fill-extrusion-base", ["get", "height_m"]);
+      map.setPaintProperty("triage-buildings-3d", "fill-extrusion-height", ["+", ["get", "height_m"], 25]);
+      map.setPaintProperty("triage-buildings-3d", "fill-extrusion-opacity", 0.85);
+      map.setPaintProperty("triage-markers-circle", "circle-opacity", 0);
+      map.setPaintProperty("triage-markers-circle", "circle-radius", 8);
+      map.setPaintProperty("triage-markers-glow", "circle-opacity", 0);
+      map.setPaintProperty("triage-markers-glow", "circle-radius", 0);
+    }
+  }, [flyMode, mapLoaded]);
 
   // Show/hide scout avatars based on fly mode
   useEffect(() => {
