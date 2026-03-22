@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import type {
@@ -18,9 +18,11 @@ import LocationSearch from './LocationSearch'
 
 // Mapbox uses browser APIs — must be dynamically imported with no SSR
 const MapView = dynamic(() => import('./MapView'), { ssr: false })
+const VT_CENTER = { lat: 37.2284, lng: -80.4234 }
 
 export default function CommandCenter() {
   const router = useRouter()
+  const autoNavTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [buildings, setBuildings] = useState<Building[]>([])
   const [scouts, setScouts] = useState<Map<string, Scout>>(new Map())
   const [activeScoutId, setActiveScoutId] = useState<string | null>(null)
@@ -28,14 +30,58 @@ export default function CommandCenter() {
   const [scenarioRunning, setScenarioRunning] = useState(false)
   const [route, setRoute] = useState<Waypoint[] | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
+  const [scenarioCenter, setScenarioCenter] = useState<{ lat: number; lng: number }>(VT_CENTER)
   const [crossRefLog, setCrossRefLog] = useState<string[]>([])
-  const [scenarioPrompt, setScenarioPrompt] = useState<string>('')
+  const [autoTransitionPending, setAutoTransitionPending] = useState(false)
+
+  const clearAutoNavTimeout = useCallback(() => {
+    if (autoNavTimeoutRef.current) {
+      clearTimeout(autoNavTimeoutRef.current)
+      autoNavTimeoutRef.current = null
+    }
+  }, [])
+
+  const handleGoFirstPerson = useCallback(
+    (building: Building) => {
+      try {
+        // Persist triage colors/footprints so first-person view can render the same overlay.
+        const triageSnapshot = buildings.map((b) => ({
+          id: b.id,
+          color: b.color,
+          height_m: b.height_m,
+          footprint: b.footprint,
+        }))
+        sessionStorage.setItem('aegis_triage_buildings', JSON.stringify(triageSnapshot))
+      } catch {
+        // Ignore storage failures (private mode/quota), fly view will fall back gracefully.
+      }
+
+      const params = new URLSearchParams({
+        lat: String(building.lat),
+        lng: String(building.lng),
+        buildingId: building.id,
+        name: building.name || `Building ${building.id}`,
+      })
+      router.push(`/fly?${params.toString()}`)
+    },
+    [buildings, router],
+  )
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
       case 'triage_result': {
         setBuildings(msg.buildings)
         setScenarioRunning(false)
+        clearAutoNavTimeout()
+        if (msg.buildings.length > 0) {
+          const target = msg.buildings[0]
+          setActiveBuilding(target)
+          setAutoTransitionPending(true)
+          autoNavTimeoutRef.current = setTimeout(() => {
+            setAutoTransitionPending(false)
+            handleGoFirstPerson(target)
+          }, 5000)
+        }
         break
       }
 
@@ -87,7 +133,7 @@ export default function CommandCenter() {
         const line = `SCOUT-${msg.from_scout.toUpperCase()} → SCOUT-${msg.to_scout.toUpperCase()}: ${msg.finding}`
         setCrossRefLog((prev) => [line, ...prev.slice(0, 19)])
         // Inject a system message into both scouts' chats
-        const crossMsg = (scoutId: string): ChatMessage => ({
+        const crossMsg = (): ChatMessage => ({
           role: 'scout',
           text: `[CROSS-REF from ${msg.from_scout.toUpperCase()}] ${msg.finding}\nImpact: ${msg.impact}${msg.resolution ? `\nResolution: ${msg.resolution}` : ''}`,
           timestamp: Date.now(),
@@ -96,7 +142,7 @@ export default function CommandCenter() {
           const next = new Map(prev)
           const to = next.get(msg.to_scout)
           if (to) {
-            next.set(msg.to_scout, { ...to, messages: [...to.messages, crossMsg(msg.to_scout)] })
+            next.set(msg.to_scout, { ...to, messages: [...to.messages, crossMsg()] })
           }
           return next
         })
@@ -113,24 +159,31 @@ export default function CommandCenter() {
         break
       }
     }
-  }, [])
+  }, [clearAutoNavTimeout, handleGoFirstPerson])
 
   const { status: wsStatus, send } = useWebSocket(handleMessage)
 
+  useEffect(() => {
+    return () => {
+      clearAutoNavTimeout()
+    }
+  }, [clearAutoNavTimeout])
+
   const handleScenarioSubmit = useCallback(
-    (prompt: string, center: { lat: number; lng: number }, radius_m: number) => {
+    (prompt: string, radius_m: number) => {
+      clearAutoNavTimeout()
       setBuildings([])
       setScouts(new Map())
       setActiveScoutId(null)
       setActiveBuilding(null)
       setRoute(null)
       setCrossRefLog([])
+      setAutoTransitionPending(false)
       setScenarioRunning(true)
-      setScenarioPrompt(prompt)
-      setMapCenter([center.lng, center.lat])
-      send({ type: 'start_scenario', prompt, center, radius_m })
+      setMapCenter([scenarioCenter.lng, scenarioCenter.lat])
+      send({ type: 'start_scenario', prompt, center: scenarioCenter, radius_m })
     },
-    [send],
+    [clearAutoNavTimeout, scenarioCenter, send],
   )
 
   const handleBuildingClick = useCallback((building: Building) => {
@@ -164,9 +217,9 @@ export default function CommandCenter() {
 
   const handleDeployScout = useCallback(
     (buildingId: string) => {
-      send({ type: 'deploy_scout', building_id: buildingId, prompt: scenarioPrompt || undefined })
+      send({ type: 'deploy_scout', building_id: buildingId })
     },
-    [send, scenarioPrompt],
+    [send],
   )
 
   const handleCloseScout = useCallback((scoutId: string) => {
@@ -177,18 +230,6 @@ export default function CommandCenter() {
     })
     setActiveScoutId((prev) => (prev === scoutId ? null : prev))
   }, [])
-
-  const handleGoFirstPerson = useCallback(
-    (building: Building) => {
-      const params = new URLSearchParams({
-        lat: String(building.lat),
-        lng: String(building.lng),
-        name: building.name || `Building ${building.id}`,
-      })
-      router.push(`/fly?${params.toString()}`)
-    },
-    [router],
-  )
 
   const scoutList = Array.from(scouts.values())
 
@@ -233,7 +274,7 @@ export default function CommandCenter() {
       </div>
 
       {/* ── Building detail popup ── */}
-      {activeBuilding && (
+      {activeBuilding && !autoTransitionPending && (
         <BuildingPopup
           building={activeBuilding}
           onDeploy={() => { handleDeployScout(activeBuilding.id); setActiveBuilding(null) }}

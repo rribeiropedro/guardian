@@ -11,6 +11,7 @@ const TRIAGE_HEX: Record<TriageColor, string> = {
   YELLOW: "#eab308",
   GREEN: "#22c55e",
 };
+const UNIFORM_LIGHT = { anchor: "viewport" as const, color: "white", intensity: 0.08 };
 
 // Virginia Tech campus default center
 const DEFAULT_CENTER: [number, number] = [-80.4234, 37.2284];
@@ -61,8 +62,8 @@ export default function MapView({
     mapRef.current = map;
 
     map.on("load", () => {
-      // Enable 3D shading/shadow contrast on extruded buildings.
-      map.setLight({ anchor: "viewport", color: "white", intensity: 0.35 });
+      // Keep building tones uniform by minimizing directional lighting.
+      map.setLight(UNIFORM_LIGHT);
 
       // On-screen controls make rotate/pitch discoverable.
       map.addControl(
@@ -117,6 +118,7 @@ export default function MapView({
               ["get", "min_height"],
             ],
             "fill-extrusion-opacity": 0.7,
+            "fill-extrusion-vertical-gradient": false,
           },
         },
         firstSymbolId,
@@ -139,6 +141,7 @@ export default function MapView({
             "fill-extrusion-height": ["get", "height_m"],
             "fill-extrusion-base": 0,
             "fill-extrusion-opacity": 0.85,
+            "fill-extrusion-vertical-gradient": false,
           },
         },
         firstSymbolId,
@@ -159,6 +162,7 @@ export default function MapView({
           "fill-extrusion-height": ["get", "height_m"],
           "fill-extrusion-base": 0,
           "fill-extrusion-opacity": 0.5,
+          "fill-extrusion-vertical-gradient": false,
         },
       });
 
