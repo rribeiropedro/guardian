@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import type {
   Building,
   Scout,
@@ -133,6 +134,8 @@ export default function CommandCenter() {
 
   const handleBuildingClick = useCallback((building: Building) => {
     setActiveBuilding(building)
+    // Use the selected building as the next scenario epicenter.
+    setScenarioCenter({ lat: building.lat, lng: building.lng })
   }, [])
 
   const handleCommanderMessage = useCallback(
@@ -174,6 +177,18 @@ export default function CommandCenter() {
     setActiveScoutId((prev) => (prev === scoutId ? null : prev))
   }, [])
 
+  const handleGoFirstPerson = useCallback(
+    (building: Building) => {
+      const params = new URLSearchParams({
+        lat: String(building.lat),
+        lng: String(building.lng),
+        name: building.name || `Building ${building.id}`,
+      })
+      router.push(`/fly?${params.toString()}`)
+    },
+    [router],
+  )
+
   const scoutList = Array.from(scouts.values())
 
   return (
@@ -197,7 +212,12 @@ export default function CommandCenter() {
           </span>
         </div>
 
-        <LocationSearch onSelect={(center) => setMapCenter(center)} />
+        <LocationSearch
+          onSelect={(center) => {
+            setMapCenter(center)
+            setScenarioCenter({ lat: center[1], lng: center[0] })
+          }}
+        />
 
         {scenarioRunning && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 backdrop-blur-md pointer-events-none">
@@ -216,6 +236,7 @@ export default function CommandCenter() {
         <BuildingPopup
           building={activeBuilding}
           onDeploy={() => { handleDeployScout(activeBuilding.id); setActiveBuilding(null) }}
+          onGoFirstPerson={() => handleGoFirstPerson(activeBuilding)}
           onClose={() => setActiveBuilding(null)}
         />
       )}
@@ -255,6 +276,7 @@ export default function CommandCenter() {
       <ScenarioInput
         wsStatus={wsStatus}
         onSubmit={handleScenarioSubmit}
+        center={scenarioCenter}
         disabled={scenarioRunning}
       />
     </div>
@@ -293,7 +315,17 @@ function BuildingSummary({ buildings }: { buildings: Building[] }) {
   )
 }
 
-function BuildingPopup({ building, onDeploy, onClose }: { building: Building; onDeploy: () => void; onClose: () => void }) {
+function BuildingPopup({
+  building,
+  onDeploy,
+  onGoFirstPerson,
+  onClose,
+}: {
+  building: Building
+  onDeploy: () => void
+  onGoFirstPerson: () => void
+  onClose: () => void
+}) {
   const COLOR_CLASSES: Record<string, string> = {
     RED: 'text-red-400 border-red-500/30 bg-red-500/10',
     ORANGE: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
@@ -336,12 +368,20 @@ function BuildingPopup({ building, onDeploy, onClose }: { building: Building; on
         </div>
       </div>
 
-      <button
-        onClick={onDeploy}
-        className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono font-bold tracking-wider transition-colors"
-      >
-        DEPLOY SCOUT →
-      </button>
+      <div className="space-y-2">
+        <button
+          onClick={onDeploy}
+          className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono font-bold tracking-wider transition-colors"
+        >
+          DEPLOY SCOUT →
+        </button>
+        <button
+          onClick={onGoFirstPerson}
+          className="w-full py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-mono font-bold tracking-wider transition-colors"
+        >
+          GO FIRST PERSON
+        </button>
+      </div>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
@@ -24,12 +25,20 @@ interface State {
   keys: Set<string>; active: boolean; lastTime: number
 }
 
-export default function FlyView() {
+interface FlyViewProps {
+  initialLat?: number
+  initialLng?: number
+  locationName?: string
+}
+
+export default function FlyView({ initialLat, initialLng, locationName }: FlyViewProps) {
+  const startLat = initialLat ?? START_LAT
+  const startLng = initialLng ?? START_LNG
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
-  const rafRef = useRef<number>()
+  const rafRef = useRef<number | undefined>(undefined)
   const stateRef = useRef<State>({
-    lng: START_LNG, lat: START_LAT, alt: START_ALT,
+    lng: startLng, lat: startLat, alt: START_ALT,
     bearing: 0, pitch: 20,
     velLng: 0, velLat: 0, velAlt: 0,
     keys: new Set(), active: false, lastTime: 0,
@@ -37,14 +46,59 @@ export default function FlyView() {
   const [active, setActive] = useState(false)
   const [hint, setHint] = useState(false)
 
+  const loop = useCallback(() => {
+    const step = (now: number) => {
+      const s = stateRef.current
+      if (!s.active) return
+      const dt = Math.min((now - s.lastTime) / 1000, 0.05)
+      s.lastTime = now
+
+      const sprint = s.keys.has('shift')
+      const speed = SPEED * (sprint ? SPRINT_MULT : 1)
+      const bearRad = (s.bearing * Math.PI) / 180
+
+      let moveX = 0, moveY = 0
+      if (s.keys.has('w') || s.keys.has('arrowup'))    { moveX += Math.sin(bearRad); moveY += Math.cos(bearRad) }
+      if (s.keys.has('s') || s.keys.has('arrowdown'))  { moveX -= Math.sin(bearRad); moveY -= Math.cos(bearRad) }
+      if (s.keys.has('a') || s.keys.has('arrowleft'))  { moveX -= Math.cos(bearRad); moveY += Math.sin(bearRad) }
+      if (s.keys.has('d') || s.keys.has('arrowright')) { moveX += Math.cos(bearRad); moveY -= Math.sin(bearRad) }
+
+      const mag = Math.sqrt(moveX * moveX + moveY * moveY)
+      if (mag > 0) { moveX /= mag; moveY /= mag }
+
+      const mPerDegLat = 111111
+      const mPerDegLng = 111111 * Math.cos(s.lat * Math.PI / 180)
+      s.velLng = s.velLng * DAMPING + (moveX * speed * dt) / mPerDegLng
+      s.velLat = s.velLat * DAMPING + (moveY * speed * dt) / mPerDegLat
+      s.lng += s.velLng
+      s.lat += s.velLat
+
+      let vert = 0
+      if (s.keys.has(' ') || s.keys.has('e')) vert = 1
+      if (s.keys.has('shift') || s.keys.has('q')) vert = -1
+      s.velAlt = s.velAlt * DAMPING + vert * VERT_SPEED * dt
+      s.alt = Math.max(2, s.alt + s.velAlt)
+
+      const map = mapRef.current
+      if (!map) return
+      const camera = map.getFreeCameraOptions()
+      camera.position = mapboxgl.MercatorCoordinate.fromLngLat({ lng: s.lng, lat: s.lat }, s.alt)
+      camera.setPitchBearing(s.pitch, s.bearing)
+      map.setFreeCameraOptions(camera)
+      map.triggerRepaint()
+      rafRef.current = requestAnimationFrame(step)
+    }
+    rafRef.current = requestAnimationFrame(step)
+  }, [])
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
     mapboxgl.accessToken = TOKEN
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      center: [START_LNG, START_LAT],
+      style: 'mapbox://styles/mapbox/streets-v12',
+      center: [startLng, startLat],
       zoom: 15.5,
       pitch: 50,
       antialias: true,
@@ -52,7 +106,9 @@ export default function FlyView() {
     mapRef.current = map
 
     map.on('load', () => {
-      map.setLight({ anchor: 'viewport', color: 'white', intensity: 0.4 })
+      // Enable 3D shading/shadow contrast on extruded buildings.
+      map.setLight({ anchor: 'viewport', color: 'white', intensity: 0.35 })
+
       const layers = map.getStyle().layers
       let firstSymbolId: string | undefined
       for (const layer of layers) {
@@ -75,7 +131,7 @@ export default function FlyView() {
     })
 
     return () => { map.remove(); mapRef.current = null }
-  }, [])
+  }, [startLat, startLng])
 
   useEffect(() => {
     const onChange = () => {
@@ -101,7 +157,7 @@ export default function FlyView() {
     }
     document.addEventListener('pointerlockchange', onChange)
     return () => document.removeEventListener('pointerlockchange', onChange)
-  }, [])
+  }, [loop])
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -178,10 +234,13 @@ export default function FlyView() {
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
 
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-        <a href="/" className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors">
+        <Link href="/" className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
           COMMAND CENTER
-        </a>
+        </Link>
+        <div className="px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400">
+          {locationName || 'Selected location'} · {startLat.toFixed(5)}, {startLng.toFixed(5)}
+        </div>
         {!active && (
           <button onClick={() => mapRef.current?.getCanvas().requestPointerLock()}
             className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono font-bold tracking-wider transition-colors">

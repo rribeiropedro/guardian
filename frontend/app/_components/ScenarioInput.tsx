@@ -4,11 +4,11 @@ import { useState } from 'react'
 import type { WsStatus } from '../_lib/useWebSocket'
 
 const PRESET_PROMPT = '7.2 magnitude earthquake, epicenter at The Pylons, 2:30 PM Tuesday'
-const VT_CENTER = { lat: 37.2284, lng: -80.4234 }
 
 interface Props {
   wsStatus: WsStatus
-  onSubmit: (prompt: string, center: { lat: number; lng: number }, radius_m: number) => void
+  onSubmit: (prompt: string, radius_m: number) => void
+  center: { lat: number; lng: number }
   disabled: boolean
 }
 
@@ -24,12 +24,12 @@ const statusLabels: Record<WsStatus, string> = {
   disconnected: 'Disconnected — retrying',
 }
 
-export default function ScenarioInput({ wsStatus, onSubmit, disabled }: Props) {
+export default function ScenarioInput({ wsStatus, onSubmit, center, disabled }: Props) {
   const [prompt, setPrompt] = useState('')
 
   function handleSubmit() {
     const text = prompt.trim() || PRESET_PROMPT
-    onSubmit(text, VT_CENTER, 1000)
+    onSubmit(text, 1000)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -49,6 +49,9 @@ export default function ScenarioInput({ wsStatus, onSubmit, disabled }: Props) {
         <div className="flex items-center gap-2 px-4 pt-3 pb-1">
           <span className={`h-2 w-2 rounded-full ${statusColors[wsStatus]} ${wsStatus === 'connecting' ? 'arriving-pulse' : ''}`} />
           <span className="text-xs text-slate-400 font-mono">{statusLabels[wsStatus]}</span>
+          <span className="text-xs text-slate-500 font-mono">
+            Center {center.lat.toFixed(5)}, {center.lng.toFixed(5)}
+          </span>
           <span className="ml-auto text-xs text-slate-600 font-mono">AEGIS-NET · COMMAND INTERFACE</span>
         </div>
 
@@ -66,11 +69,13 @@ export default function ScenarioInput({ wsStatus, onSubmit, disabled }: Props) {
 
           <div className="flex flex-col gap-2 items-end">
             <button
-              onClick={() => setPrompt(PRESET_PROMPT)}
+              onClick={() => {
+                setPrompt(PRESET_PROMPT)
+              }}
               className="text-xs text-slate-500 hover:text-slate-300 transition-colors whitespace-nowrap"
               type="button"
             >
-              Use VT Demo
+              Use VT Demo Prompt
             </button>
             <button
               onClick={handleSubmit}
