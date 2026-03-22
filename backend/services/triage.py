@@ -204,9 +204,9 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 # ---------------------------------------------------------------------------
 
 def _assign_color(score: float) -> str:
-    if score >= 75:
+    if score >= 85:
         return "RED"
-    if score >= 55:
+    if score >= 65:
         return "ORANGE"
     if score >= 35:
         return "YELLOW"

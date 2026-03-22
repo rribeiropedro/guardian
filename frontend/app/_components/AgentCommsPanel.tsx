@@ -21,9 +21,10 @@ interface Props {
   feed: AgentFeedEntry[]
   onMessage: (scoutId: string, message: string) => void
   onRequestRoute: (buildingId: string) => void
+  routeReady: boolean
 }
 
-export default function AgentCommsPanel({ scouts, feed, onMessage, onRequestRoute }: Props) {
+export default function AgentCommsPanel({ scouts, feed, onMessage, onRequestRoute, routeReady }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('ALL')
   const [lastSeenCount, setLastSeenCount] = useState(0)
@@ -142,6 +143,7 @@ export default function AgentCommsPanel({ scouts, feed, onMessage, onRequestRout
               onMessage={onMessage}
               onRequestRoute={onRequestRoute}
               onClose={() => setActiveTab('ALL')}
+              routeReady={routeReady}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-xs font-mono text-slate-600">

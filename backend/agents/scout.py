@@ -57,6 +57,7 @@ class Scout:
         scenario_prompt: str = "",
         shared_state: SharedState | None = None,
         building_queue: deque | None = None,
+        on_scout_point: Callable[[], None] | None = None,
     ) -> None:
         self.scout_id = scout_id
         self.building = building
@@ -75,13 +76,16 @@ class Scout:
         # Background auto-survey task (initial building only) — Coordinator awaits this.
         self._survey_task: asyncio.Task | None = None
         # Background queue-continuation task — runs after _survey_task completes.
-        # Coordinator does NOT await this, so scouts_concluded fires on schedule.
+        # Coordinator awaits this before firing scouts_concluded.
         self._queue_task: asyncio.Task | None = None
         # Use the provided per-coordinator state; fall back to the module singleton
         # for standalone tests that create Scout directly.
         self._shared_state: SharedState = shared_state if shared_state is not None else get_shared_state()
         # Shared building queue — popleft to get next building after current is done.
         self._building_queue: deque | None = building_queue
+        # Called synchronously after each completed analyze_viewpoint() to increment
+        # the coordinator's scout-point counter and trigger the limit if reached.
+        self._on_scout_point: Callable[[], None] | None = on_scout_point
 
     # ------------------------------------------------------------------
     # Public interface
@@ -243,6 +247,12 @@ class Scout:
 
         annotated_bytes = await annotation.annotate_image(image_bytes, vlm_result.findings)
         image_b64 = base64.b64encode(annotated_bytes).decode()
+
+        # Notify coordinator that one scout point has been consumed.  This fires
+        # after the full analysis completes so the current viewpoint is never
+        # interrupted — only future iterations are cancelled if the limit is hit.
+        if self._on_scout_point is not None:
+            self._on_scout_point()
 
         return ScoutReport(
             scout_id=self.scout_id,
@@ -515,12 +525,9 @@ class Scout:
     async def _auto_survey(self) -> None:
         """Walk remaining viewpoints of the INITIAL building only.
 
-        Completes quickly (2-3 VLM calls) so the Coordinator's
-        _wait_for_surveys_then_conclude gate fires on schedule and
-        scouts_concluded is emitted before queue buildings are processed.
-
-        After finishing, spawns _continue_queue as a truly background task
-        that the Coordinator never awaits.
+        After finishing, spawns _continue_queue to process all queued buildings.
+        The Coordinator awaits both survey_task and queue_task before firing
+        scouts_concluded, so FEMA loads only after all buildings are assessed.
         """
         try:
             while True:

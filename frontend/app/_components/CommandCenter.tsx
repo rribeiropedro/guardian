@@ -39,6 +39,9 @@ export default function CommandCenter() {
   // Set by the scouts_concluded handler; a useEffect below sends the route request
   // once `send` is available (send comes from useWebSocket, defined after handleMessage).
   const [pendingRouteBuildingId, setPendingRouteBuildingId] = useState<string | null>(null)
+  // True only after scouts_concluded fires — gates the manual ROUTE button so it
+  // only fires once SharedState has full hazard data from all scouts.
+  const [scoutsHaveConcluded, setScoutsHaveConcluded] = useState(false)
   const [lastScenarioPrompt, setLastScenarioPrompt] = useState('')
   const [showFEMAReport, setShowFEMAReport] = useState(false)
 
@@ -129,6 +132,7 @@ export default function CommandCenter() {
           from: 'ICS',
           text: 'All scouts concluded. Calculating safe route to priority target…',
         })
+        setScoutsHaveConcluded(true)
         setPendingRouteBuildingId(msg.target_building_id)
         break
       }
@@ -345,6 +349,7 @@ export default function CommandCenter() {
       setScoutTrailPoints({})
       setLastScenarioPrompt(prompt)
       setShowFEMAReport(false)
+      setScoutsHaveConcluded(false)
       setMapCenter([scenarioCenter.lng, scenarioCenter.lat])
       send({ type: 'start_scenario', prompt, center: scenarioCenter, radius_m })
     },
@@ -455,6 +460,7 @@ export default function CommandCenter() {
               setScoutOrder([])
               setScoutTrailPoints({})
               setPendingRouteBuildingId(null)
+              setScoutsHaveConcluded(false)
               streamEntryIds.current = {}
             }}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-slate-200 hover:border-white/20 transition-colors"
@@ -543,6 +549,7 @@ export default function CommandCenter() {
         feed={agentFeed}
         onMessage={handleCommanderMessage}
         onRequestRoute={handleRequestRoute}
+        routeReady={scoutsHaveConcluded}
       />
 
       {/* ── FEMA Report overlay ── */}
