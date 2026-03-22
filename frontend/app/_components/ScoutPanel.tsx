@@ -40,9 +40,10 @@ interface Props {
   onMessage: (scoutId: string, message: string) => void
   onRequestRoute: (buildingId: string) => void
   onClose: () => void
+  routeReady: boolean
 }
 
-export default function ScoutPanel({ scout, isActive, onFocus, onRequestRoute, onClose }: Props) {
+export default function ScoutPanel({ scout, isActive, onFocus, onRequestRoute, onClose, routeReady }: Props) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   // Start true so the first report scrolls into view automatically.
@@ -84,9 +85,14 @@ export default function ScoutPanel({ scout, isActive, onFocus, onRequestRoute, o
 
         <div className="flex items-center gap-1">
           <button
-            onClick={(e) => { e.stopPropagation(); onRequestRoute(scout.building_id) }}
-            className="text-[10px] font-mono tracking-wider px-2 py-1 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
-            title="Walk Route to this building"
+            onClick={(e) => { e.stopPropagation(); if (routeReady) onRequestRoute(scout.building_id) }}
+            disabled={!routeReady}
+            className={`text-[10px] font-mono tracking-wider px-2 py-1 rounded border transition-colors ${
+              routeReady
+                ? 'border-blue-500/30 text-blue-400 hover:bg-blue-500/10 cursor-pointer'
+                : 'border-white/10 text-slate-600 cursor-not-allowed'
+            }`}
+            title={routeReady ? 'Walk Route to this building' : 'Waiting for all scouts to conclude…'}
           >
             ROUTE
           </button>

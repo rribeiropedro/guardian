@@ -103,6 +103,12 @@ class Coordinator:
         self._auto_arrive_pending: int = 0
         # Ids of scouts registered via auto_deploy (not manual_deploy).
         self._auto_scout_ids: set[str] = set()
+        # Hard scout-point limit: total analyze_viewpoint() calls across all scouts
+        # must not exceed len(all_buildings) * 1.5.  Set in auto_deploy().
+        self._scout_point_limit: int = 0
+        self._scout_point_count: int = 0
+        # Single-fire guard: True once scouts_concluded has been (or is being) emitted.
+        self._conclude_fired: bool = False
         # Per-coordinator SharedState — isolates cross-reference findings
         # from concurrent client sessions that share the same process.
         self.shared_state = SharedState()
@@ -128,12 +134,13 @@ class Coordinator:
         coverage is complete with no duplicates.
 
         Called immediately after ``triage_result`` is emitted.  ``scouts_concluded``
-        fires once the initial building survey (not the full queue) completes —
-        queue continuation runs as a separate background task per scout.
+        fires only after every scout has finished its initial survey AND exhausted
+        its full building queue — every assigned building is fully assessed first.
         """
         top = buildings[:4]
         count = min(len(top), 4)
         self._auto_arrive_pending = count
+        self._scout_point_limit = int(len(buildings) * 1.5)
 
         # Per-scout proximity-ordered queues; deque([]) when ≤4 buildings total.
         coverage_queues = _build_coverage_queues(top, buildings[4:])
@@ -240,6 +247,9 @@ class Coordinator:
         self._name_counter = 0
         self._auto_arrive_pending = 0
         self._auto_scout_ids.clear()
+        self._scout_point_limit = 0
+        self._scout_point_count = 0
+        self._conclude_fired = False
         # Null out the callback so stale done-callbacks from the now-cancelled
         # tasks cannot decrement the counter below zero and re-trigger
         # scouts_concluded against the next scenario's state.
@@ -279,6 +289,7 @@ class Coordinator:
             scenario_prompt=scenario_prompt,
             shared_state=self.shared_state,
             building_queue=building_queue,
+            on_scout_point=self._on_scout_point,
         )
 
     def _register_task(
@@ -314,19 +325,72 @@ class Coordinator:
 
         task.add_done_callback(_on_done)
 
-    async def _wait_for_surveys_then_conclude(self) -> None:
-        """Wait for all auto-scout initial-building surveys to finish, then call on_all_scouts_done.
+    def _on_scout_point(self) -> None:
+        """Called synchronously by a Scout after each completed analyze_viewpoint().
 
-        Awaits survey_task for every auto-scout.  This is necessary because
-        _delayed_arrive() returns as soon as arrive() returns — before the
-        background survey task completes.
-
-        Queue-continuation tasks (_continue_queue) run as truly background tasks
-        and are intentionally NOT awaited here.  scouts_concluded fires once every
-        scout has completed its initial building assessment; hazard data is rich
-        enough at that point for an accurate route calculation.  Queue work
-        continues in the background and enriches SharedState further.
+        Increments the global scout-point counter.  When the counter reaches
+        ``_scout_point_limit`` (total_buildings * 1.5), cancels all remaining
+        survey/queue work across every scout and schedules scouts_concluded.
+        The current analyze_viewpoint() call always completes fully before this
+        fires — only future iterations are cancelled.
         """
+        self._scout_point_count += 1
+        logger.info(
+            "Coordinator: scout point %d / %d",
+            self._scout_point_count,
+            self._scout_point_limit,
+        )
+        if (
+            self._scout_point_limit > 0
+            and self._scout_point_count >= self._scout_point_limit
+            and not self._conclude_fired
+            and self._on_all_scouts_done is not None
+        ):
+            self._conclude_fired = True
+            logger.info(
+                "Coordinator: scout-point limit reached (%d/%d) — cancelling remaining work",
+                self._scout_point_count,
+                self._scout_point_limit,
+            )
+            for scout in self.scouts.values():
+                scout.cancel_survey()
+                scout.cancel_queue()
+            asyncio.create_task(
+                self._fire_conclude(),
+                name="coordinator-conclude-limit",
+            )
+
+    async def _fire_conclude(self) -> None:
+        """Emit scouts_concluded exactly once.
+
+        Callers must set ``_conclude_fired = True`` before scheduling this
+        coroutine to close the race window between the limit path and the
+        normal completion path.
+        """
+        logger.info("Coordinator: all scouts fully concluded — firing on_all_scouts_done")
+        if self._on_all_scouts_done is not None:
+            await self._on_all_scouts_done()
+
+    async def _wait_for_surveys_then_conclude(self) -> None:
+        """Wait for all auto-scout surveys AND full building queues, then call on_all_scouts_done.
+
+        Step 1 — Awaits survey_task for every auto-scout (initial building, all viewpoints).
+        Step 2 — Awaits queue_task for every auto-scout (all remaining queued buildings).
+                 queue_task is only spawned after survey_task completes, so collecting it
+                 after the survey gather is safe and always captures the task if one exists.
+
+        scouts_concluded fires only after every building is assessed OR the scout-point
+        limit fires first (whichever comes first).  The _conclude_fired guard prevents
+        double-emission in both directions.
+        """
+        # If _on_scout_point() already fired the limit path, nothing to do.
+        if self._conclude_fired:
+            logger.info("Coordinator: _wait_for_surveys_then_conclude — limit already fired, skipping")
+            return
+        # Claim the slot before the first await so _on_scout_point() racing here
+        # will see True and skip its own fire.
+        self._conclude_fired = True
+
         survey_tasks = [
             s.survey_task
             for sid, s in self.scouts.items()
@@ -341,9 +405,21 @@ class Coordinator:
             )
             await asyncio.gather(*survey_tasks, return_exceptions=True)
 
-        logger.info("Coordinator: all scouts fully concluded — firing on_all_scouts_done")
-        if self._on_all_scouts_done is not None:
-            await self._on_all_scouts_done()
+        queue_tasks = [
+            s.queue_task
+            for sid, s in self.scouts.items()
+            if sid in self._auto_scout_ids
+            and s.queue_task is not None
+            and not s.queue_task.done()
+        ]
+        if queue_tasks:
+            logger.info(
+                "Coordinator: surveys done — waiting for %d queue task(s) to finish all buildings",
+                len(queue_tasks),
+            )
+            await asyncio.gather(*queue_tasks, return_exceptions=True)
+
+        await self._fire_conclude()
 
     @staticmethod
     async def _delayed_arrive(scout: Scout, delay: float) -> None:

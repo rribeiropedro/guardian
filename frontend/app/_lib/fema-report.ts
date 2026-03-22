@@ -36,8 +36,8 @@ function colorToP58(color: string): string {
 }
 
 function scoreToRisk(score: number): string {
-  if (score >= 75) return 'CRITICAL'
-  if (score >= 55) return 'HIGH'
+  if (score >= 85) return 'CRITICAL'
+  if (score >= 65) return 'HIGH'
   if (score >= 35) return 'MODERATE'
   return 'LOW'
 }
