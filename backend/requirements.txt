@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+websockets
+pydantic
+httpx
+pillow
+redis
+anthropic
+python-dotenv

@@ -185,6 +185,50 @@ export default function FlyView({ initialLat, initialLng, locationName }: FlyVie
     }
   }, [])
 
+  function loop() {
+    rafRef.current = requestAnimationFrame((now) => {
+      const s = stateRef.current
+      if (!s.active) return
+      const dt = Math.min((now - s.lastTime) / 1000, 0.05)
+      s.lastTime = now
+
+      const sprint = s.keys.has('shift')
+      const speed = SPEED * (sprint ? SPRINT_MULT : 1)
+      const bearRad = (s.bearing * Math.PI) / 180
+
+      let moveX = 0, moveY = 0
+      if (s.keys.has('w') || s.keys.has('arrowup'))    { moveX += Math.sin(bearRad); moveY += Math.cos(bearRad) }
+      if (s.keys.has('s') || s.keys.has('arrowdown'))  { moveX -= Math.sin(bearRad); moveY -= Math.cos(bearRad) }
+      if (s.keys.has('a') || s.keys.has('arrowleft'))  { moveX -= Math.cos(bearRad); moveY += Math.sin(bearRad) }
+      if (s.keys.has('d') || s.keys.has('arrowright')) { moveX += Math.cos(bearRad); moveY -= Math.sin(bearRad) }
+
+      const mag = Math.sqrt(moveX * moveX + moveY * moveY)
+      if (mag > 0) { moveX /= mag; moveY /= mag }
+
+      const mPerDegLat = 111111
+      const mPerDegLng = 111111 * Math.cos(s.lat * Math.PI / 180)
+      s.velLng = s.velLng * DAMPING + (moveX * speed * dt) / mPerDegLng
+      s.velLat = s.velLat * DAMPING + (moveY * speed * dt) / mPerDegLat
+      s.lng += s.velLng
+      s.lat += s.velLat
+
+      let vert = 0
+      if (s.keys.has(' ') || s.keys.has('e')) vert = 1
+      if (s.keys.has('shift') || s.keys.has('q')) vert = -1
+      s.velAlt = s.velAlt * DAMPING + vert * VERT_SPEED * dt
+      s.alt = Math.max(2, s.alt + s.velAlt)
+
+      const map = mapRef.current
+      if (!map) return
+      const camera = map.getFreeCameraOptions()
+      camera.position = mapboxgl.MercatorCoordinate.fromLngLat({ lng: s.lng, lat: s.lat }, s.alt)
+      camera.setPitchBearing(s.pitch, s.bearing)
+      map.setFreeCameraOptions(camera)
+      map.triggerRepaint()
+      loop()
+    })
+  }
+
   return (
     <div className="fixed inset-0 bg-[#0a0a0f]">
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
