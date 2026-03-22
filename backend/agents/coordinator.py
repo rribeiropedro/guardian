@@ -42,6 +42,7 @@ class Coordinator:
         epicenter_lat: float,
         epicenter_lng: float,
         magnitude: float,
+        scenario_prompt: str = "",
     ) -> None:
         """Fire-and-forget: deploy up to 3 scouts with 0 / 3 / 6 s stagger.
 
@@ -51,7 +52,7 @@ class Coordinator:
         for i, building in enumerate(buildings[:3]):
             delay = _AUTO_DEPLOY_DELAYS[i] if i < len(_AUTO_DEPLOY_DELAYS) else i * 3.0
             scout_id = self._next_scout_id()
-            scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude)
+            scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
             self.scouts[scout_id] = scout
             task = asyncio.create_task(
                 self._delayed_arrive(scout, delay),
@@ -71,13 +72,14 @@ class Coordinator:
         epicenter_lat: float,
         epicenter_lng: float,
         magnitude: float,
+        scenario_prompt: str = "",
     ) -> str:
         """Fire-and-forget: deploy one additional scout immediately.
 
         Returns the assigned scout_id so the caller can log or ack it.
         """
         scout_id = self._next_scout_id()
-        scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude)
+        scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
         self.scouts[scout_id] = scout
         task = asyncio.create_task(scout.arrive(), name=f"scout-{scout_id}-arrive")
         self._register_task(task, scout_id)
@@ -94,6 +96,7 @@ class Coordinator:
         epicenter_lat: float,
         epicenter_lng: float,
         magnitude: float,
+        scenario_prompt: str = "",
     ) -> str:
         """Deploy one scout and block until arrival completes.
 
@@ -101,7 +104,7 @@ class Coordinator:
         messages from the arrival sequence.
         """
         scout_id = self._next_scout_id()
-        scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude)
+        scout = self._make_scout(scout_id, building, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
         self.scouts[scout_id] = scout
         await scout.arrive()
         return scout_id
@@ -157,6 +160,7 @@ class Coordinator:
         epicenter_lat: float,
         epicenter_lng: float,
         magnitude: float,
+        scenario_prompt: str = "",
     ) -> Scout:
         return Scout(
             scout_id=scout_id,
@@ -165,6 +169,7 @@ class Coordinator:
             epicenter_lng=epicenter_lng,
             magnitude=magnitude,
             emit=self._emit,
+            scenario_prompt=scenario_prompt,
         )
 
     def _register_task(self, task: asyncio.Task, scout_id: str) -> None:

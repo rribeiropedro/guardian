@@ -184,6 +184,7 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
 
     _scenario_state[client_id] = {
         "scenario_id": scenario_id,
+        "prompt": msg.prompt,
         "epicenter_lat": msg.center.lat,
         "epicenter_lng": msg.center.lng,
         "magnitude": magnitude,
@@ -191,6 +192,10 @@ async def _run_start_scenario(client_id: str, payload: dict) -> TriageResult:
         "buildings_by_id": {b.id: b for b in scored},
         "top_buildings": [b.id for b in scored[:3]],
     }
+    logger.info(
+        "SCENARIO stored: id=%s magnitude=%.1f time=%s buildings=%d prompt=%r",
+        scenario_id, magnitude, time_of_day, len(scored), msg.prompt[:80],
+    )
 
     return TriageResult(
         scenario_id=scenario_id,
@@ -239,6 +244,7 @@ async def _handle_start_scenario(client_id: str, payload: dict) -> None:
         epicenter_lat=scenario["epicenter_lat"],
         epicenter_lng=scenario["epicenter_lng"],
         magnitude=scenario["magnitude"],
+        scenario_prompt=scenario.get("prompt", ""),
     )
 
 
@@ -277,11 +283,13 @@ async def _handle_commander_message(client_id: str, payload: dict) -> None:
 def _resolve_deploy_params(
     client_id: str,
     building_id: str,
-) -> tuple[ScoredBuilding, float, float, float]:
-    """Return (building, epicenter_lat, epicenter_lng, magnitude) for a deploy request.
+    payload_prompt: str | None = None,
+) -> tuple[ScoredBuilding, float, float, float, str]:
+    """Return (building, epicenter_lat, epicenter_lng, magnitude, scenario_prompt).
 
     Falls back to a minimal stub ScoredBuilding when no scenario is active,
     so scouts can be tested standalone without first running start_scenario.
+    The prompt is taken from the payload first, then from scenario state.
     """
     scenario = _scenario_state.get(client_id, {})
     buildings_by_id: dict[str, ScoredBuilding] = scenario.get("buildings_by_id", {})
@@ -306,7 +314,13 @@ def _resolve_deploy_params(
     epicenter_lat = scenario.get("epicenter_lat", 37.2284)
     epicenter_lng = scenario.get("epicenter_lng", -80.4234)
     magnitude = scenario.get("magnitude", 6.0)
-    return scored, epicenter_lat, epicenter_lng, magnitude
+    scenario_prompt = payload_prompt or scenario.get("prompt", "")
+    prompt_source = "payload" if payload_prompt else ("scenario_state" if scenario.get("prompt") else "none")
+    logger.info(
+        "DEPLOY resolved: building=%s magnitude=%.1f prompt_source=%s prompt=%r",
+        scored.id, magnitude, prompt_source, scenario_prompt[:80],
+    )
+    return scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt
 
 
 async def _execute_scout_arrive(
@@ -316,18 +330,18 @@ async def _execute_scout_arrive(
 ) -> str:
     """Deploy a scout and await its arrival — used by the HTTP dev endpoint."""
     msg = DeployScout.model_validate(payload)
-    scored, epicenter_lat, epicenter_lng, magnitude = _resolve_deploy_params(
-        client_id, msg.building_id
+    scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt = _resolve_deploy_params(
+        client_id, msg.building_id, msg.prompt
     )
     coord = Coordinator(emit=emit)
-    return await coord.deploy_and_await(scored, epicenter_lat, epicenter_lng, magnitude)
+    return await coord.deploy_and_await(scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
 
 
 async def _handle_deploy_scout(client_id: str, payload: dict) -> None:
     """WebSocket handler: manual scout deploy — fire-and-forget via coordinator."""
     msg = DeployScout.model_validate(payload)
-    scored, epicenter_lat, epicenter_lng, magnitude = _resolve_deploy_params(
-        client_id, msg.building_id
+    scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt = _resolve_deploy_params(
+        client_id, msg.building_id, msg.prompt
     )
 
     emit = lambda m: manager.send_personal_message(client_id, m)  # noqa: E731
@@ -336,7 +350,7 @@ async def _handle_deploy_scout(client_id: str, payload: dict) -> None:
         coord = Coordinator(emit=emit)
         _coordinators[client_id] = coord
 
-    coord.manual_deploy(scored, epicenter_lat, epicenter_lng, magnitude)
+    coord.manual_deploy(scored, epicenter_lat, epicenter_lng, magnitude, scenario_prompt)
 
 
 async def _handle_request_route(client_id: str, payload: dict) -> None:

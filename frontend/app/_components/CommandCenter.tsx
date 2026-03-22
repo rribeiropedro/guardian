@@ -27,6 +27,7 @@ export default function CommandCenter() {
   const [route, setRoute] = useState<Waypoint[] | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [crossRefLog, setCrossRefLog] = useState<string[]>([])
+  const [scenarioPrompt, setScenarioPrompt] = useState<string>('')
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
@@ -123,6 +124,7 @@ export default function CommandCenter() {
       setRoute(null)
       setCrossRefLog([])
       setScenarioRunning(true)
+      setScenarioPrompt(prompt)
       setMapCenter([center.lng, center.lat])
       send({ type: 'start_scenario', prompt, center, radius_m })
     },
@@ -150,16 +152,17 @@ export default function CommandCenter() {
 
   const handleRequestRoute = useCallback(
     (buildingId: string) => {
-      send({ type: 'request_route', building_id: buildingId })
+      const start = mapCenter ? { lat: mapCenter[1], lng: mapCenter[0] } : undefined
+      send({ type: 'request_route', building_id: buildingId, ...(start ? { start } : {}) })
     },
-    [send],
+    [send, mapCenter],
   )
 
   const handleDeployScout = useCallback(
     (buildingId: string) => {
-      send({ type: 'deploy_scout', building_id: buildingId })
+      send({ type: 'deploy_scout', building_id: buildingId, prompt: scenarioPrompt || undefined })
     },
-    [send],
+    [send, scenarioPrompt],
   )
 
   const handleCloseScout = useCallback((scoutId: string) => {

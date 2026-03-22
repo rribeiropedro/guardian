@@ -128,9 +128,16 @@ def build_system_prompt(
     magnitude: float,
     neighbor_context: str = "",
     cross_reference_context: str = "",
+    scenario_prompt: str = "",
 ) -> str:
     """Format the standard VLM system prompt for a scout viewpoint."""
-    parts = [
+    parts = []
+    if scenario_prompt:
+        parts.append(f"Incident: {scenario_prompt}")
+        logger.debug("VLM system prompt: scenario context injected (%d chars)", len(scenario_prompt))
+    else:
+        logger.debug("VLM system prompt: no scenario context")
+    parts += [
         f"You are analyzing the {facing} facade of {building_name}.",
         f"Epicenter is to the {epicenter_direction} (bearing {bearing:.0f}°), "
         f"{distance_m:.0f}m away, magnitude {magnitude}.",

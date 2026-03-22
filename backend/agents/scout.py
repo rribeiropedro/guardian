@@ -44,6 +44,7 @@ class Scout:
         epicenter_lng: float,
         magnitude: float,
         emit: Callable[[dict], Awaitable[None]],
+        scenario_prompt: str = "",
     ) -> None:
         self.scout_id = scout_id
         self.building = building
@@ -53,6 +54,7 @@ class Scout:
         self._epicenter_lng = epicenter_lng
         self._magnitude = magnitude
         self._emit = emit
+        self._scenario_prompt = scenario_prompt
         self._current_image_bytes: bytes | None = None
         # Text summaries of completed analyses — injected as context for follow-up questions.
         self._analysis_summaries: list[str] = []
@@ -71,6 +73,11 @@ class Scout:
         4. Emit scout_report.
         5. Emit scout_deployed(active).
         """
+        logger.info(
+            "SCOUT %s arriving at building=%s prompt=%r",
+            self.scout_id, self.building.id,
+            self._scenario_prompt[:80] if self._scenario_prompt else "(none)",
+        )
         self.viewpoints = streetview.calculate_viewpoints(
             self.building.footprint,
             self._epicenter_lat,
@@ -164,16 +171,14 @@ class Scout:
         for record in nearby:
             key = (record.scout_id, self.scout_id)
             if key not in self._emitted_cross_refs:
+                finding, impact, resolution = await self._enrich_cross_ref(record)
                 await self._emit(
                     CrossReference(
                         from_scout=record.scout_id,
                         to_scout=self.scout_id,
-                        finding=f"{record.risk_type} hazard to the {record.direction}",
-                        impact=(
-                            f"May affect approach to {self.building.name} "
-                            f"(~{record.estimated_range_m:.0f}m range from "
-                            f"building {record.building_id})"
-                        ),
+                        finding=finding,
+                        impact=impact,
+                        resolution=resolution,
                     ).model_dump()
                 )
                 self._emitted_cross_refs.add(key)
@@ -276,6 +281,49 @@ class Scout:
     # Private helpers
     # ------------------------------------------------------------------
 
+    async def _enrich_cross_ref(self, record: object) -> tuple[str, str, str | None]:
+        """Return (finding, impact, resolution) for a cross-reference record.
+
+        If NemoClaw is enabled and available, calls the aegis-crossref agent to
+        produce richer narrative text. Falls back to template strings on failure
+        or when NemoClaw is disabled (default).
+        """
+        # Template fallback (current behavior).
+        template_finding = f"{record.risk_type} hazard to the {record.direction}"  # type: ignore[attr-defined]
+        template_impact = (
+            f"May affect approach to {self.building.name} "
+            f"(~{record.estimated_range_m:.0f}m range from "  # type: ignore[attr-defined]
+            f"building {record.building_id})"  # type: ignore[attr-defined]
+        )
+
+        try:
+            from ..services.nemoclaw_client import build_crossref_payload, get_nemoclaw_client
+            nc = await get_nemoclaw_client()
+            if nc is None:
+                return template_finding, template_impact, None
+
+            payload = build_crossref_payload(
+                from_scout_id=record.scout_id,  # type: ignore[attr-defined]
+                to_scout_id=self.scout_id,
+                risk_type=record.risk_type,  # type: ignore[attr-defined]
+                direction=record.direction,  # type: ignore[attr-defined]
+                from_building_id=record.building_id,  # type: ignore[attr-defined]
+                from_building_name=f"Building {record.building_id}",  # type: ignore[attr-defined]
+                to_building_name=self.building.name,
+                estimated_range_m=record.estimated_range_m,  # type: ignore[attr-defined]
+            )
+            result = await nc.call_agent("aegis-crossref", payload)
+            if result is None:
+                return template_finding, template_impact, None
+
+            finding = str(result.get("finding", template_finding))
+            impact = str(result.get("impact", template_impact))
+            resolution = result.get("resolution")
+            return finding, impact, str(resolution) if resolution else None
+        except Exception as exc:
+            logger.warning("NemoClaw crossref enrichment failed: %s", exc)
+            return template_finding, template_impact, None
+
     def _build_system_prompt(
         self,
         viewpoint: ScoutViewpoint,
@@ -289,6 +337,7 @@ class Scout:
             distance_m=self._distance_to_epicenter(),
             magnitude=self._magnitude,
             cross_reference_context=cross_ref_context,
+            scenario_prompt=self._scenario_prompt,
         )
 
     def _vlm_to_scout_analysis(self, vlm_result: VLMAnalysis) -> ScoutAnalysis:

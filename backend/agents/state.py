@@ -27,6 +27,17 @@ class SharedState:
     def __init__(self) -> None:
         self._records: list[_RiskRecord] = []
 
+    def reset_for_scenario(self, scenario_id: str | None = None) -> None:
+        """Clear all risk records.
+
+        Call this at the start of each new scenario so stale findings from a
+        prior run don't bleed into cross-reference queries for a new client.
+        The scenario_id parameter is accepted for logging but not stored —
+        the store is intentionally flat (all scouts in the same process share
+        one singleton, scoped by reset boundary).
+        """
+        self._records.clear()
+
     def write_findings(
         self,
         scout_id: str,

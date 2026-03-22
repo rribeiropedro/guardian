@@ -170,6 +170,7 @@ class CommanderMessage(MessageBase):
 class DeployScout(MessageBase):
     type: Literal["deploy_scout"] = "deploy_scout"
     building_id: str
+    prompt: str | None = None
 
 
 class RequestRoute(MessageBase):
