@@ -132,15 +132,15 @@ export default function LandingPage() {
           {/* Left */}
           <div className="flex-1 max-w-2xl shrink-0 pl-8 lg:pl-16">
             <div className="inline-flex items-center gap-2.5 border border-slate-700/60 rounded-full px-4 py-1.5 text-[11px] tracking-[0.2em] text-slate-500 mb-8">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]" />
-              SYSTEM V2.4 OPERATIONAL
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(59,130,246,0.8)]" />
+              HOO HACKS 2026
             </div>
 
             <h1
               className="text-[clamp(3rem,6vw,5.5rem)] leading-[1.05] tracking-tight mb-7"
               style={{ fontFamily: "var(--font-playfair)" }}
             >
-              The art of
+              Simulate the earthquake.
               <br />
               <em
                 style={{
@@ -150,16 +150,12 @@ export default function LandingPage() {
                   textShadow: "0 0 40px rgba(59,130,246,0.25)",
                 }}
               >
-                precision
-              </em>{" "}
-              response.
+                Walk every route.
+              </em>
             </h1>
 
             <p className="text-slate-400 text-[1.05rem] leading-relaxed mb-10 max-w-md">
-              Deploy AI scouts to critical buildings the moment disaster
-              strikes. GroundZero delivers real-time triage, hazard-aware
-              routing, and first-responder intelligence — all from a single
-              command.
+              Simulate any earthquake scenario. AI scouts assess every building, flag hazards, and map approach routes to train firefighters and EMS on exactly what they will face.
             </p>
 
             <button
@@ -178,7 +174,7 @@ export default function LandingPage() {
                   "0 0 24px rgba(59,130,246,0.4), 0 0 0 1px rgba(59,130,246,0.2)")
               }
             >
-              Enter Command Center
+              Enter Simulation
               <span className="text-base">→</span>
             </button>
           </div>
@@ -193,7 +189,7 @@ export default function LandingPage() {
               <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
               <span className="w-2.5 h-2.5 rounded-full bg-green-500/70" />
               <span className="ml-3 text-[11px] font-mono text-slate-500">
-                triage.live
+                groundzero.sim
               </span>
             </div>
             <div className="flex-1 relative">
@@ -202,7 +198,7 @@ export default function LandingPage() {
               <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#0a0a0f]/40 to-transparent pointer-events-none" />
               <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#0a0a0f] to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 text-[10px] font-mono text-slate-500 tracking-widest">
-                NEW YORK CITY · LIVE TRIAGE VIEW
+                NEW YORK CITY · SCENARIO PREVIEW
               </div>
             </div>
           </div>
@@ -284,8 +280,8 @@ export default function LandingPage() {
                       style={
                         i === 0
                           ? {
-                              background: "#f97316",
-                              boxShadow: "0 0 10px rgba(249,115,22,0.6)",
+                              background: "#3B82F6",
+                              boxShadow: "0 0 10px rgba(59,130,246,0.6)",
                             }
                           : {
                               background: "#1e293b",
@@ -298,7 +294,7 @@ export default function LandingPage() {
                     <div className="flex items-center gap-3 mb-1.5">
                       <span
                         className="text-[11px] font-mono"
-                        style={{ color: i === 0 ? "#f97316" : "#475569" }}
+                        style={{ color: i === 0 ? "#3B82F6" : "#475569" }}
                       >
                         {s.label}
                       </span>
@@ -328,7 +324,7 @@ export default function LandingPage() {
           </h2>
           <div
             className="w-16 h-px mb-14"
-            style={{ background: "linear-gradient(90deg,#f97316,transparent)" }}
+            style={{ background: "linear-gradient(90deg,#3B82F6,transparent)" }}
           />
 
           <div className="grid grid-cols-1 md:grid-cols-3 border border-slate-800/60 divide-y md:divide-y-0 md:divide-x divide-slate-800/60">
