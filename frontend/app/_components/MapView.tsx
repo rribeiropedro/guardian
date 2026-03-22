@@ -6,12 +6,12 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import type { Building, TriageColor } from "../_lib/types";
 
 const TRIAGE_HEX: Record<TriageColor, string> = {
-  RED: "#ef4444",
-  ORANGE: "#f97316",
-  YELLOW: "#eab308",
-  GREEN: "#22c55e",
+  RED: "#ff5d73",
+  ORANGE: "#ffad42",
+  YELLOW: "#ffe066",
+  GREEN: "#4ade80",
 };
-const UNIFORM_LIGHT = { anchor: "viewport" as const, color: "white", intensity: 0.08 };
+const STANDARD_STYLE = "mapbox://styles/mapbox/standard";
 
 // Virginia Tech campus default center
 const DEFAULT_CENTER: [number, number] = [-80.4234, 37.2284];
@@ -20,20 +20,30 @@ const DEFAULT_ZOOM = 15.5;
 interface Props {
   center?: [number, number];
   buildings: Building[];
+  pinnedReds?: Building[];
   activeBuilding?: Building;
-  onBuildingClick: (building: Building) => void;
+  onBuildingClick: (building: Building, point: { x: number; y: number }) => void;
+  ensureSpaceForOverlay?: boolean;
+  onMapDoubleClick?: (lat: number, lng: number) => void;
+  epicenter?: [number, number]; // [lng, lat]
 }
 
 export default function MapView({
   center,
   buildings,
+  pinnedReds = [],
   activeBuilding,
   onBuildingClick,
+  ensureSpaceForOverlay,
+  onMapDoubleClick,
+  epicenter,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const buildingsRef = useRef<Building[]>(buildings);
   buildingsRef.current = buildings;
+  const onMapDoubleClickRef = useRef(onMapDoubleClick);
+  onMapDoubleClickRef.current = onMapDoubleClick;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -49,7 +59,7 @@ export default function MapView({
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: "mapbox://styles/mapbox/navigation-night-v1",
+      style: STANDARD_STYLE,
       center: center ?? DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       pitch: 50,
@@ -62,8 +72,14 @@ export default function MapView({
     mapRef.current = map;
 
     map.on("load", () => {
-      // Keep building tones uniform by minimizing directional lighting.
-      map.setLight(UNIFORM_LIGHT);
+      // Standard style with regular day/light basemap.
+      if ("setConfigProperty" in map) {
+        (
+          map as mapboxgl.Map & {
+            setConfigProperty?: (importId: string, configName: string, value: unknown) => void;
+          }
+        ).setConfigProperty?.("basemap", "lightPreset", "day");
+      }
 
       // On-screen controls make rotate/pitch discoverable.
       map.addControl(
@@ -78,9 +94,7 @@ export default function MapView({
       map.touchZoomRotate.enable();
       map.touchZoomRotate.enableRotation();
 
-      // ── Base OSM 3D buildings ────────────────────────────────────────────────
       const layers = map.getStyle().layers;
-      // Find the first symbol layer to insert the extrusion below labels
       let firstSymbolId: string | undefined;
       for (const layer of layers) {
         if (layer.type === "symbol") {
@@ -88,41 +102,6 @@ export default function MapView({
           break;
         }
       }
-
-      map.addLayer(
-        {
-          id: "base-buildings-3d",
-          source: "composite",
-          "source-layer": "building",
-          filter: ["==", "extrude", "true"],
-          type: "fill-extrusion",
-          minzoom: 14,
-          paint: {
-            "fill-extrusion-color": "#1e293b",
-            "fill-extrusion-height": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              14,
-              0,
-              14.05,
-              ["get", "height"],
-            ],
-            "fill-extrusion-base": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              14,
-              0,
-              14.05,
-              ["get", "min_height"],
-            ],
-            "fill-extrusion-opacity": 0.7,
-            "fill-extrusion-vertical-gradient": false,
-          },
-        },
-        firstSymbolId,
-      );
 
       // ── Triage overlay source (empty until triage_result arrives) ────────────
       map.addSource("triage-buildings", {
@@ -137,15 +116,47 @@ export default function MapView({
           type: "fill-extrusion",
           minzoom: 13,
           paint: {
-            "fill-extrusion-color": ["get", "color_hex"],
+            // Keep geometry present for depth/clicking, but avoid full color wash.
+            "fill-extrusion-color": "#334155",
             "fill-extrusion-height": ["get", "height_m"],
             "fill-extrusion-base": 0,
-            "fill-extrusion-opacity": 0.85,
-            "fill-extrusion-vertical-gradient": false,
+            "fill-extrusion-opacity": 0.28,
+            "fill-extrusion-vertical-gradient": true,
           },
         },
         firstSymbolId,
       );
+
+      map.addSource("triage-markers", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "triage-markers-glow",
+        source: "triage-markers",
+        type: "circle",
+        paint: {
+          "circle-color": ["get", "color_hex"],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 6, 18, 18],
+          "circle-opacity": 0.2,
+          "circle-blur": 0.75,
+          "circle-stroke-width": 0,
+        },
+      });
+
+      map.addLayer({
+        id: "triage-markers-circle",
+        source: "triage-markers",
+        type: "circle",
+        paint: {
+          "circle-color": ["get", "color_hex"],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 2.75, 18, 8],
+          "circle-opacity": 0.95,
+          "circle-stroke-color": "#f8fafc",
+          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 13, 1.1, 18, 1.8],
+        },
+      });
 
       // ── Selected building highlight ───────────────────────────────────────────
       map.addSource("selected-building", {
@@ -162,8 +173,77 @@ export default function MapView({
           "fill-extrusion-height": ["get", "height_m"],
           "fill-extrusion-base": 0,
           "fill-extrusion-opacity": 0.5,
-          "fill-extrusion-vertical-gradient": false,
+          "fill-extrusion-vertical-gradient": true,
         },
+      });
+
+      // ── Pinned reds — always visible, never cleared ───────────────────────────
+      map.addSource("pinned-reds", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "pinned-reds-glow",
+        source: "pinned-reds",
+        type: "circle",
+        paint: {
+          "circle-color": "#ff1a1a",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 8, 18, 22],
+          "circle-opacity": 0.25,
+          "circle-blur": 0.7,
+          "circle-stroke-width": 0,
+        },
+      });
+
+      map.addLayer({
+        id: "pinned-reds-dot",
+        source: "pinned-reds",
+        type: "circle",
+        paint: {
+          "circle-color": "#ff1a1a",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 3.5, 18, 9],
+          "circle-opacity": 1,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
+      });
+
+      // ── Epicenter pin (double-click to set) ──────────────────────────────────
+      map.addSource("epicenter", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "epicenter-glow",
+        source: "epicenter",
+        type: "circle",
+        paint: {
+          "circle-color": "#ffffff",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 12, 18, 28],
+          "circle-opacity": 0.12,
+          "circle-blur": 0.9,
+          "circle-stroke-width": 0,
+        },
+      });
+
+      map.addLayer({
+        id: "epicenter-dot",
+        source: "epicenter",
+        type: "circle",
+        paint: {
+          "circle-color": "#ffffff",
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 3, 18, 6],
+          "circle-opacity": 0.9,
+          "circle-stroke-color": "#60a5fa",
+          "circle-stroke-width": 2,
+        },
+      });
+
+      map.doubleClickZoom.disable();
+      map.on("dblclick", (e) => {
+        onMapDoubleClickRef.current?.(e.lngLat.lat, e.lngLat.lng);
       });
 
       // ── Click handler (triage buildings) ─────────────────────────────────────
@@ -173,33 +253,15 @@ export default function MapView({
         const building = buildingsRef.current.find(
           (b) => b.id === props.building_id,
         );
-        if (building) onBuildingClick(building);
+        if (building) onBuildingClick(building, { x: e.point.x, y: e.point.y });
       });
-
-      // ── Click handler (base OSM buildings) ───────────────────────────────────
-      map.on("click", "base-buildings-3d", (e) => {
+      map.on("click", "triage-markers-circle", (e) => {
         if (!e.features?.[0]) return;
-        // Highlight by injecting a synthetic building from the OSM feature
-        const f = e.features[0];
-        const props = f.properties ?? {};
-        const height = (props.height as number) ?? 8;
-        const geometry = f.geometry as GeoJSON.Polygon;
-        const syntheticBuilding: Building = {
-          id: String(f.id ?? Math.random()),
-          name: (props.name as string) || "Unknown Building",
-          lat: e.lngLat.lat,
-          lng: e.lngLat.lng,
-          footprint: geometry.coordinates[0].map(
-            ([lng, lat]) => [lat, lng] as [number, number],
-          ),
-          triage_score: 0,
-          color: "GREEN",
-          damage_probability: 0,
-          estimated_occupancy: 0,
-          material: "unknown",
-          height_m: height,
-        };
-        onBuildingClick(syntheticBuilding);
+        const props = e.features[0].properties as { building_id: string };
+        const building = buildingsRef.current.find(
+          (b) => b.id === props.building_id,
+        );
+        if (building) onBuildingClick(building, { x: e.point.x, y: e.point.y });
       });
 
       map.on("mouseenter", "triage-buildings-3d", () => {
@@ -208,13 +270,12 @@ export default function MapView({
       map.on("mouseleave", "triage-buildings-3d", () => {
         map.getCanvas().style.cursor = "";
       });
-      map.on("mouseenter", "base-buildings-3d", () => {
+      map.on("mouseenter", "triage-markers-circle", () => {
         map.getCanvas().style.cursor = "pointer";
       });
-      map.on("mouseleave", "base-buildings-3d", () => {
+      map.on("mouseleave", "triage-markers-circle", () => {
         map.getCanvas().style.cursor = "";
       });
-
       // Render initial buildings if already in state
       if (buildingsRef.current.length > 0) {
         updateSource(map, buildingsRef.current);
@@ -249,6 +310,32 @@ export default function MapView({
     });
   }, [activeBuilding]);
 
+  // Update epicenter pin
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const source = map.getSource("epicenter") as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features: epicenter
+        ? [{ type: "Feature", geometry: { type: "Point", coordinates: epicenter }, properties: {} }]
+        : [],
+    });
+  }, [epicenter]);
+
+  // Pinned reds — only ever grows, never clears
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const source = map.getSource("pinned-reds") as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features: pinnedReds.map((b) => buildingToMarkerFeature(b)),
+    });
+  }, [pinnedReds]);
+
   // Fly to new center
   useEffect(() => {
     if (!center || !mapRef.current) return;
@@ -259,6 +346,16 @@ export default function MapView({
       duration: 1800,
     });
   }, [center]);
+
+  // If an overlay needs space near a clicked building, zoom out slightly.
+  useEffect(() => {
+    if (!ensureSpaceForOverlay || !mapRef.current) return;
+    const map = mapRef.current;
+    map.easeTo({
+      zoom: Math.max(map.getZoom() - 0.8, 12),
+      duration: 700,
+    });
+  }, [ensureSpaceForOverlay]);
 
   return (
     <div
@@ -303,12 +400,44 @@ function buildingToFeature(b: Building): GeoJSON.Feature<GeoJSON.Polygon> {
 }
 
 function updateSource(map: mapboxgl.Map, buildings: Building[]) {
-  const source = map.getSource("triage-buildings") as
+  const polygonSource = map.getSource("triage-buildings") as
     | mapboxgl.GeoJSONSource
     | undefined;
-  if (!source) return;
-  source.setData({
+  const markerSource = map.getSource("triage-markers") as
+    | mapboxgl.GeoJSONSource
+    | undefined;
+  if (!polygonSource || !markerSource) return;
+
+  polygonSource.setData({
     type: "FeatureCollection",
     features: buildings.map(buildingToFeature),
   });
+  markerSource.setData({
+    type: "FeatureCollection",
+    features: buildings.map(buildingToMarkerFeature),
+  });
+}
+
+function buildingToMarkerFeature(
+  b: Building,
+): GeoJSON.Feature<GeoJSON.Point> {
+  // b.lat/lng can be 0 or missing if the backend didn't populate them.
+  // Fall back to the footprint centroid so the dot always lands on the building.
+  let lat = b.lat;
+  let lng = b.lng;
+  if ((!lat || !lng) && b.footprint?.length > 0) {
+    let sumLat = 0, sumLng = 0;
+    for (const [la, ln] of b.footprint) { sumLat += la; sumLng += ln; }
+    lat = sumLat / b.footprint.length;
+    lng = sumLng / b.footprint.length;
+  }
+  return {
+    type: "Feature",
+    id: `${b.id}-marker`,
+    geometry: { type: "Point", coordinates: [lng, lat] },
+    properties: {
+      building_id: b.id,
+      color_hex: TRIAGE_HEX[b.color],
+    },
+  };
 }

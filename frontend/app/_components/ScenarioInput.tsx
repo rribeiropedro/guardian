@@ -24,7 +24,12 @@ const statusLabels: Record<WsStatus, string> = {
   disconnected: 'Disconnected — retrying',
 }
 
-export default function ScenarioInput({ wsStatus, onSubmit, center, disabled }: Props) {
+export default function ScenarioInput({
+  wsStatus,
+  onSubmit,
+  center,
+  disabled,
+}: Props) {
   const [prompt, setPrompt] = useState('')
 
   function handleSubmit() {
