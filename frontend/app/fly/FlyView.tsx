@@ -6,6 +6,12 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
+const TRIAGE_HEX = {
+  RED: "#ef4444",
+  ORANGE: "#f97316",
+  YELLOW: "#eab308",
+  GREEN: "#22c55e",
+} as const;
 
 const START_LNG = -80.4234;
 const START_LAT = 37.2284;
@@ -36,12 +42,21 @@ interface State {
 interface FlyViewProps {
   initialLat?: number;
   initialLng?: number;
+  selectedBuildingId?: string;
   locationName?: string;
+}
+
+interface StoredTriageBuilding {
+  id: string;
+  color: keyof typeof TRIAGE_HEX;
+  height_m: number;
+  footprint: [number, number][];
 }
 
 export default function FlyView({
   initialLat,
   initialLng,
+  selectedBuildingId,
   locationName,
 }: FlyViewProps) {
   const startLat = initialLat ?? START_LAT;
@@ -189,39 +204,85 @@ export default function FlyView({
         },
         firstSymbolId,
       );
+
+      // Reuse triage colors from command center so first-person matches sky view.
+      let triageBuildings: StoredTriageBuilding[] = [];
+      try {
+        const raw = sessionStorage.getItem("aegis_triage_buildings");
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            triageBuildings = parsed.filter(isStoredTriageBuilding);
+          }
+        }
+      } catch {
+        // If storage is unavailable or malformed, continue without triage overlay.
+      }
+
+      if (triageBuildings.length > 0) {
+        map.addSource("triage-buildings", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: triageBuildings.map(toTriageFeature),
+          },
+        });
+
+        map.addLayer(
+          {
+            id: "triage-buildings-3d",
+            source: "triage-buildings",
+            type: "fill-extrusion",
+            minzoom: 13,
+            paint: {
+              "fill-extrusion-color": ["get", "color_hex"],
+              "fill-extrusion-height": ["get", "height_m"],
+              "fill-extrusion-base": 0,
+              "fill-extrusion-opacity": 0.9,
+              "fill-extrusion-vertical-gradient": false,
+            },
+          },
+          firstSymbolId,
+        );
+
+        if (selectedBuildingId) {
+          map.addLayer(
+            {
+              id: "selected-building-glow",
+              source: "triage-buildings",
+              type: "fill-extrusion",
+              filter: ["==", ["get", "building_id"], selectedBuildingId],
+              paint: {
+                "fill-extrusion-color": "#60a5fa",
+                "fill-extrusion-height": ["get", "height_m"],
+                "fill-extrusion-base": 0,
+                "fill-extrusion-opacity": 0.4,
+                "fill-extrusion-vertical-gradient": false,
+              },
+            },
+            firstSymbolId,
+          );
+        }
+      }
+
+      // Auto-enter first-person mode when this view opens.
+      stateRef.current.active = true;
+      stateRef.current.lastTime = performance.now();
+      stateRef.current.keys.clear();
+      setActive(true);
+      setHint(true);
+      setTimeout(() => setHint(false), 3000);
+      map.dragPan.disable();
+      map.scrollZoom.disable();
+      map.dragRotate.disable();
+      loop();
     });
 
     return () => {
       map.remove();
       mapRef.current = null;
     };
-  }, [startLat, startLng]);
-
-  useEffect(() => {
-    const onChange = () => {
-      const canvas = mapRef.current?.getCanvas();
-      const locked = document.pointerLockElement === canvas;
-      stateRef.current.active = locked;
-      setActive(locked);
-      if (locked) {
-        mapRef.current?.dragPan.disable();
-        mapRef.current?.scrollZoom.disable();
-        mapRef.current?.dragRotate.disable();
-        stateRef.current.lastTime = performance.now();
-        stateRef.current.keys.clear();
-        setHint(true);
-        setTimeout(() => setHint(false), 3000);
-        loop();
-      } else {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        mapRef.current?.dragPan.enable();
-        mapRef.current?.scrollZoom.enable();
-        mapRef.current?.dragRotate.enable();
-      }
-    };
-    document.addEventListener("pointerlockchange", onChange);
-    return () => document.removeEventListener("pointerlockchange", onChange);
-  }, [loop]);
+  }, [loop, selectedBuildingId, startLat, startLng]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -243,7 +304,11 @@ export default function FlyView({
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
       stateRef.current.keys.add(e.key.toLowerCase());
-      if (e.key === "Escape") document.exitPointerLock();
+      if (e.key === "Escape") {
+        stateRef.current.active = false;
+        setActive(false);
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      }
       if (
         [" ", "w", "a", "s", "d"].includes(e.key.toLowerCase()) &&
         stateRef.current.active
@@ -293,14 +358,6 @@ export default function FlyView({
           {locationName || "Selected location"} · {startLat.toFixed(5)},{" "}
           {startLng.toFixed(5)}
         </div>
-        {!active && (
-          <button
-            onClick={() => mapRef.current?.getCanvas().requestPointerLock()}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono font-bold tracking-wider transition-colors"
-          >
-            ENTER FIRST-PERSON →
-          </button>
-        )}
       </div>
 
       {active && (
@@ -323,5 +380,39 @@ export default function FlyView({
         </div>
       )}
     </div>
+  );
+}
+
+function toTriageFeature(
+  building: StoredTriageBuilding,
+): GeoJSON.Feature<GeoJSON.Polygon> {
+  const coords = building.footprint.map(
+    ([lat, lng]) => [lng, lat] as [number, number],
+  );
+  if (coords.length > 0) coords.push(coords[0]);
+
+  return {
+    type: "Feature",
+    id: building.id,
+    geometry: { type: "Polygon", coordinates: [coords] },
+    properties: {
+      building_id: building.id,
+      color_hex: TRIAGE_HEX[building.color],
+      height_m: Math.max(building.height_m || 4, 4),
+    },
+  };
+}
+
+function isStoredTriageBuilding(value: unknown): value is StoredTriageBuilding {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<StoredTriageBuilding>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.height_m === "number" &&
+    Array.isArray(candidate.footprint) &&
+    (candidate.color === "RED" ||
+      candidate.color === "ORANGE" ||
+      candidate.color === "YELLOW" ||
+      candidate.color === "GREEN")
   );
 }

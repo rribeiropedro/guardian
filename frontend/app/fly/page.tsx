@@ -9,6 +9,7 @@ export default function FlyPage() {
   const searchParams = useSearchParams()
   const latParam = searchParams.get('lat')
   const lngParam = searchParams.get('lng')
+  const buildingIdParam = searchParams.get('buildingId') || undefined
   const nameParam = searchParams.get('name') || undefined
 
   const lat = latParam ? Number(latParam) : undefined
@@ -26,6 +27,7 @@ export default function FlyPage() {
     <FlyView
       initialLat={hasValidCoords ? lat : undefined}
       initialLng={hasValidCoords ? lng : undefined}
+      selectedBuildingId={buildingIdParam}
       locationName={nameParam}
     />
   )
