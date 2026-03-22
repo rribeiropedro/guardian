@@ -157,7 +157,9 @@ export default function CommandCenter() {
 
       {/* ── Top-left HUD ── */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-        <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md pointer-events-none">
+        <div className="flex items-center gap-3 px-3 py-2 rounded-xl border border-orange-500/20 bg-[rgba(8,10,18,0.88)] backdrop-blur-md pointer-events-none" style={{boxShadow:'0 0 18px rgba(249,115,22,0.08)'}}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="GroundZero" className="h-7 w-7 rounded-md object-cover" style={{filter:'drop-shadow(0 0 6px rgba(249,115,22,0.5))'}} />
           <span className="text-sm font-mono font-bold tracking-widest text-white">GroundZero</span>
           <span className="text-xs font-mono text-slate-500 border-l border-white/10 pl-3">
             INCIDENT COMMAND

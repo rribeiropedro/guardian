@@ -47,9 +47,10 @@ export default function ScenarioInput({
   return (
     <div className="absolute bottom-0 left-0 right-0 flex items-end justify-center pb-6 px-4 pointer-events-none z-20">
       <div
-        className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[rgba(10,12,20,0.92)] backdrop-blur-md shadow-2xl pointer-events-auto"
-        style={{ boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
+        className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[rgba(10,12,20,0.92)] backdrop-blur-md shadow-2xl pointer-events-auto overflow-hidden"
+        style={{ boxShadow: '0 0 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(249,115,22,0.08)' }}
       >
+        <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, rgba(249,115,22,0.7) 40%, rgba(249,115,22,0.3) 100%)' }} />
         {/* Status bar */}
         <div className="flex items-center gap-2 px-4 pt-3 pb-1">
           <span className={`h-2 w-2 rounded-full ${statusColors[wsStatus]} ${wsStatus === 'connecting' ? 'arriving-pulse' : ''}`} />
@@ -57,7 +58,11 @@ export default function ScenarioInput({
           <span className="text-xs text-slate-500 font-mono">
             Center {center.lat.toFixed(5)}, {center.lng.toFixed(5)}
           </span>
-          <span className="ml-auto text-xs text-slate-600 font-mono">GroundZero · COMMAND INTERFACE</span>
+          <span className="ml-auto text-xs font-mono flex items-center gap-1.5" style={{color:'rgba(249,115,22,0.5)'}}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" className="h-3.5 w-3.5 rounded object-cover opacity-70" />
+            GroundZero · COMMAND INTERFACE
+          </span>
         </div>
 
         {/* Input row */}
@@ -85,7 +90,8 @@ export default function ScenarioInput({
             <button
               onClick={handleSubmit}
               disabled={disabled || wsStatus !== 'connected'}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 px-4 py-2 text-sm font-semibold text-white transition-colors"
+              className="flex items-center gap-2 rounded-xl disabled:bg-slate-700 disabled:text-slate-500 px-4 py-2 text-sm font-semibold text-white transition-all"
+              style={disabled || wsStatus !== 'connected' ? {} : {background:'linear-gradient(135deg,#f97316,#ea580c)', boxShadow:'0 0 16px rgba(249,115,22,0.35)'}}
               type="button"
             >
               <span>Deploy</span>

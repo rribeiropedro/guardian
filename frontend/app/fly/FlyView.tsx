@@ -579,18 +579,11 @@ export default function FlyView({
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
         <Link
           href="/"
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-orange-500/20 bg-[rgba(8,10,18,0.88)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors"
+          style={{boxShadow:'0 0 12px rgba(249,115,22,0.07)'}}
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" className="h-4 w-4 rounded object-cover" style={{filter:'drop-shadow(0 0 4px rgba(249,115,22,0.4))'}} />
           COMMAND CENTER
         </Link>
         <div className="px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400">

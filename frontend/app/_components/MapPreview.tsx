@@ -20,7 +20,7 @@ export default function MapPreview() {
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: "mapbox://styles/mapbox/navigation-night-v1",
+      style: "mapbox://styles/mapbox/standard",
       center: CENTER,
       zoom: 15.3,
       pitch: 55,
@@ -32,21 +32,7 @@ export default function MapPreview() {
     mapRef.current = map;
 
     map.on("load", () => {
-      // 3D buildings
-      map.addLayer({
-        id: "3d-buildings",
-        source: "composite",
-        "source-layer": "building",
-        filter: ["==", "extrude", "true"],
-        type: "fill-extrusion",
-        minzoom: 14,
-        paint: {
-          "fill-extrusion-color": "#1a1f35",
-          "fill-extrusion-height": ["get", "height"],
-          "fill-extrusion-base": ["get", "min_height"],
-          "fill-extrusion-opacity": 0.85,
-        },
-      });
+      map.setConfigProperty("basemap", "lightPreset", "night");
 
       // Slow rotation
       let bearing = -20;

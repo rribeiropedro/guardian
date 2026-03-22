@@ -80,3 +80,36 @@ body {
 .crossref-flash {
   animation: crossref-flash 1.5s ease-out forwards;
 }
+
+/* Landing page slide-in from right */
+@keyframes pageSlideIn {
+  from {
+    transform: translateX(60px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.page-enter {
+  animation: pageSlideIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Landing page slide-out to left on navigate */
+@keyframes pageSlideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-80px);
+    opacity: 0;
+  }
+}
+
+.page-exit {
+  animation: pageSlideOut 0.45s cubic-bezier(0.55, 0, 1, 0.45) both;
+  pointer-events: none;
+}
