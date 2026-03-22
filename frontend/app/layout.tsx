@@ -6,7 +6,7 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'AEGIS-NET — AI Earthquake Incident Command',
+  title: 'GroundZero — AI Earthquake Incident Command',
   description: 'AI scout agents for earthquake incident command. Deploy scouts, triage buildings, walk the route.',
 }
 

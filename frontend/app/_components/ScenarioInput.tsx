@@ -52,7 +52,7 @@ export default function ScenarioInput({ wsStatus, onSubmit, center, disabled }: 
           <span className="text-xs text-slate-500 font-mono">
             Center {center.lat.toFixed(5)}, {center.lng.toFixed(5)}
           </span>
-          <span className="ml-auto text-xs text-slate-600 font-mono">AEGIS-NET · COMMAND INTERFACE</span>
+          <span className="ml-auto text-xs text-slate-600 font-mono">GroundZero · COMMAND INTERFACE</span>
         </div>
 
         {/* Input row */}
