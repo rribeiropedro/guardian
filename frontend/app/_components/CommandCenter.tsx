@@ -20,6 +20,7 @@ import LocationSearch from './LocationSearch'
 const MapView = dynamic(() => import('./MapView'), { ssr: false })
 
 export default function CommandCenter() {
+  const router = useRouter()
   const [buildings, setBuildings] = useState<Building[]>([])
   const [scouts, setScouts] = useState<Map<string, Scout>>(new Map())
   const [activeScoutId, setActiveScoutId] = useState<string | null>(null)
