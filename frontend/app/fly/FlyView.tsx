@@ -7,23 +7,25 @@ import "mapbox-gl/dist/mapbox-gl.css";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 const TRIAGE_HEX = {
-  RED: "#ef4444",
-  ORANGE: "#f97316",
-  YELLOW: "#eab308",
+  RED: "#ff1a1a",
+  ORANGE: "#fb923c",
+  YELLOW: "#a37c00",
   GREEN: "#22c55e",
 } as const;
+const STANDARD_STYLE = "mapbox://styles/mapbox/standard";
 
 const START_LNG = -80.4234;
 const START_LAT = 37.2284;
-const START_ALT = 80;
-const SPEED = 10;
+const START_ALT = 90;
+const START_BEARING = 95;
+const START_PITCH = 100;
+const SPEED = 14;
 const SPRINT_MULT = 2.5;
 const SENSITIVITY = 0.003;
-const PITCH_MIN = -60;
-const PITCH_MAX = 80;
+const PITCH_MIN = -85;
+const PITCH_MAX = 85;
 const VERT_SPEED = 8;
 const DAMPING = 0.88;
-const UNIFORM_LIGHT = { anchor: "viewport" as const, color: "white", intensity: 0.08 };
 
 interface State {
   lng: number;
@@ -68,8 +70,8 @@ export default function FlyView({
     lng: startLng,
     lat: startLat,
     alt: START_ALT,
-    bearing: 0,
-    pitch: 20,
+    bearing: START_BEARING,
+    pitch: START_PITCH,
     velLng: 0,
     velLat: 0,
     velAlt: 0,
@@ -150,17 +152,28 @@ export default function FlyView({
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: "mapbox://styles/mapbox/navigation-night-v1",
+      style: STANDARD_STYLE,
       center: [startLng, startLat],
       zoom: 15.5,
-      pitch: 50,
+      pitch: 0,
+      bearing: START_BEARING,
       antialias: true,
     });
     mapRef.current = map;
 
     map.on("load", () => {
-      // Keep building tones uniform by minimizing directional lighting.
-      map.setLight(UNIFORM_LIGHT);
+      // Standard style with regular day/light basemap.
+      if ("setConfigProperty" in map) {
+        (
+          map as mapboxgl.Map & {
+            setConfigProperty?: (
+              importId: string,
+              configName: string,
+              value: unknown,
+            ) => void;
+          }
+        ).setConfigProperty?.("basemap", "lightPreset", "day");
+      }
 
       const layers = map.getStyle().layers;
       let firstSymbolId: string | undefined;
@@ -170,40 +183,6 @@ export default function FlyView({
           break;
         }
       }
-      map.addLayer(
-        {
-          id: "buildings-3d",
-          source: "composite",
-          "source-layer": "building",
-          filter: ["==", "extrude", "true"],
-          type: "fill-extrusion",
-          minzoom: 13,
-          paint: {
-            "fill-extrusion-color": "#1e293b",
-            "fill-extrusion-height": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              14,
-              0,
-              14.05,
-              ["get", "height"],
-            ],
-            "fill-extrusion-base": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              14,
-              0,
-              14.05,
-              ["get", "min_height"],
-            ],
-            "fill-extrusion-opacity": 0.95,
-            "fill-extrusion-vertical-gradient": false,
-          },
-        },
-        firstSymbolId,
-      );
 
       // Reuse triage colors from command center so first-person matches sky view.
       let triageBuildings: StoredTriageBuilding[] = [];
@@ -219,51 +198,105 @@ export default function FlyView({
         // If storage is unavailable or malformed, continue without triage overlay.
       }
 
-      if (triageBuildings.length > 0) {
-        map.addSource("triage-buildings", {
+      // Only mark big buildings (12 m+ ≈ 3+ stories) as dots — no color wash.
+      const bigBuildings = triageBuildings.filter((b) => b.height_m >= 12);
+
+      if (bigBuildings.length > 0) {
+        map.addSource("triage-markers", {
           type: "geojson",
           data: {
             type: "FeatureCollection",
-            features: triageBuildings.map(toTriageFeature),
+            features: bigBuildings.map(toMarkerFeature),
           },
         });
 
-        map.addLayer(
-          {
-            id: "triage-buildings-3d",
-            source: "triage-buildings",
-            type: "fill-extrusion",
-            minzoom: 13,
-            paint: {
-              "fill-extrusion-color": ["get", "color_hex"],
-              "fill-extrusion-height": ["get", "height_m"],
-              "fill-extrusion-base": 0,
-              "fill-extrusion-opacity": 0.9,
-              "fill-extrusion-vertical-gradient": false,
-            },
+        // Outer glow
+        map.addLayer({
+          id: "triage-markers-glow",
+          source: "triage-markers",
+          type: "circle",
+          paint: {
+            "circle-color": ["get", "color_hex"],
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              13,
+              5,
+              18,
+              14,
+            ],
+            "circle-opacity": 0.12,
+            "circle-blur": 0.8,
+            "circle-stroke-width": 0,
           },
-          firstSymbolId,
-        );
+        });
 
+        // Solid dot
+        map.addLayer({
+          id: "triage-markers-circle",
+          source: "triage-markers",
+          type: "circle",
+          paint: {
+            "circle-color": ["get", "color_hex"],
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              13,
+              2,
+              18,
+              5,
+            ],
+            "circle-opacity": 0.65,
+            "circle-stroke-color": "#f8fafc",
+            "circle-stroke-width": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              13,
+              0.8,
+              18,
+              1.2,
+            ],
+          },
+        });
+
+        // Selected building gets a blue ring marker
         if (selectedBuildingId) {
-          map.addLayer(
-            {
-              id: "selected-building-glow",
-              source: "triage-buildings",
-              type: "fill-extrusion",
-              filter: ["==", ["get", "building_id"], selectedBuildingId],
-              paint: {
-                "fill-extrusion-color": "#60a5fa",
-                "fill-extrusion-height": ["get", "height_m"],
-                "fill-extrusion-base": 0,
-                "fill-extrusion-opacity": 0.4,
-                "fill-extrusion-vertical-gradient": false,
-              },
+          map.addLayer({
+            id: "selected-building-ring",
+            source: "triage-markers",
+            type: "circle",
+            filter: ["==", ["get", "building_id"], selectedBuildingId],
+            paint: {
+              "circle-color": "transparent",
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                13,
+                8,
+                18,
+                16,
+              ],
+              "circle-opacity": 0,
+              "circle-stroke-color": "#60a5fa",
+              "circle-stroke-width": 2.5,
             },
-            firstSymbolId,
-          );
+          });
         }
       }
+
+      // Force a forward-looking initial pose (not at the ground) before controls activate.
+      const initialState = stateRef.current;
+      const initialCamera = map.getFreeCameraOptions();
+      initialCamera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+        { lng: initialState.lng, lat: initialState.lat },
+        initialState.alt,
+      );
+      initialCamera.setPitchBearing(initialState.pitch, initialState.bearing);
+      map.setFreeCameraOptions(initialCamera);
 
       // Auto-enter first-person mode when this view opens.
       stateRef.current.active = true;
@@ -284,27 +317,63 @@ export default function FlyView({
     };
   }, [loop, selectedBuildingId, startLat, startLng]);
 
+  const mouseDownRef = useRef(false);
+  const lastMouseRef = useRef({ x: 0, y: 0 });
+
   useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      mouseDownRef.current = true;
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      // Also try to grab pointer lock on click for smoother look
+      const container = containerRef.current;
+      if (container && document.pointerLockElement !== container) {
+        container.requestPointerLock?.();
+      }
+    };
+    const onMouseUp = () => {
+      mouseDownRef.current = false;
+    };
     const onMove = (e: MouseEvent) => {
       const s = stateRef.current;
       if (!s.active) return;
-      s.bearing += e.movementX * SENSITIVITY * (180 / Math.PI);
+
+      let dx: number;
+      let dy: number;
+      if (document.pointerLockElement === containerRef.current) {
+        // Pointer locked: use raw movement (no button required)
+        dx = e.movementX;
+        dy = e.movementY;
+      } else {
+        // Free drag: require mouse button held
+        if (!mouseDownRef.current) return;
+        dx = e.clientX - lastMouseRef.current.x;
+        dy = e.clientY - lastMouseRef.current.y;
+        lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      }
+
+      s.bearing += dx * SENSITIVITY * (180 / Math.PI);
       s.pitch = Math.max(
         PITCH_MIN,
-        Math.min(
-          PITCH_MAX,
-          s.pitch + e.movementY * SENSITIVITY * (180 / Math.PI),
-        ),
+        Math.min(PITCH_MAX, s.pitch + dy * SENSITIVITY * (180 / Math.PI)),
       );
     };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("mousemove", onMove);
-    return () => document.removeEventListener("mousemove", onMove);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mousemove", onMove);
+    };
   }, []);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
       stateRef.current.keys.add(e.key.toLowerCase());
       if (e.key === "Escape") {
+        if (document.pointerLockElement === containerRef.current) {
+          document.exitPointerLock();
+        }
         stateRef.current.active = false;
         setActive(false);
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -371,7 +440,8 @@ export default function FlyView({
 
       {hint && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.9)] backdrop-blur-md text-xs font-mono text-slate-400 text-center">
-          WASD move · Mouse look · Space up · Shift down · Esc exit
+          Drag to look · WASD move · Space up · Shift down · Click to lock mouse
+          · Esc exit
         </div>
       )}
       {active && !hint && (
@@ -383,22 +453,27 @@ export default function FlyView({
   );
 }
 
-function toTriageFeature(
+function toMarkerFeature(
   building: StoredTriageBuilding,
-): GeoJSON.Feature<GeoJSON.Polygon> {
-  const coords = building.footprint.map(
-    ([lat, lng]) => [lng, lat] as [number, number],
-  );
-  if (coords.length > 0) coords.push(coords[0]);
+): GeoJSON.Feature<GeoJSON.Point> {
+  // Compute centroid from footprint ([lat, lng] pairs)
+  const fp = building.footprint;
+  let sumLat = 0,
+    sumLng = 0;
+  for (const [lat, lng] of fp) {
+    sumLat += lat;
+    sumLng += lng;
+  }
+  const centroidLng = fp.length > 0 ? sumLng / fp.length : 0;
+  const centroidLat = fp.length > 0 ? sumLat / fp.length : 0;
 
   return {
     type: "Feature",
     id: building.id,
-    geometry: { type: "Polygon", coordinates: [coords] },
+    geometry: { type: "Point", coordinates: [centroidLng, centroidLat] },
     properties: {
       building_id: building.id,
       color_hex: TRIAGE_HEX[building.color],
-      height_m: Math.max(building.height_m || 4, 4),
     },
   };
 }
