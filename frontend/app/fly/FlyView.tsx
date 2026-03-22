@@ -619,11 +619,11 @@ export default function FlyView({
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
         <Link
           href="/"
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-orange-500/20 bg-[rgba(8,10,18,0.88)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors"
-          style={{boxShadow:'0 0 12px rgba(249,115,22,0.07)'}}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/20 bg-[rgba(8,10,18,0.88)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors"
+          style={{boxShadow:'0 0 12px rgba(59,130,246,0.07)'}}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="" className="h-4 w-4 rounded object-cover" style={{filter:'drop-shadow(0 0 4px rgba(249,115,22,0.4))'}} />
+          <img src="/helmet-logo.svg" alt="" className="h-4 w-4 object-contain" style={{filter:'drop-shadow(0 0 4px rgba(59,130,246,0.4))'}} />
           COMMAND CENTER
         </Link>
         <div className="px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400">

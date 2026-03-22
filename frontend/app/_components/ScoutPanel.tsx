@@ -5,7 +5,7 @@ import type { Scout, ChatMessage, Severity } from '../_lib/types'
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   CRITICAL: 'text-red-400',
-  MODERATE: 'text-orange-400',
+  MODERATE: 'text-blue-400',
   LOW: 'text-yellow-400',
 }
 

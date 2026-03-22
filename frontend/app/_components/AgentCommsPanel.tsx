@@ -9,7 +9,7 @@ const SCOUT_COLORS: Record<string, string> = {
   alpha: 'text-emerald-400',
   bravo: 'text-cyan-400',
   charlie: 'text-violet-400',
-  delta: 'text-orange-400',
+  delta: 'text-blue-400',
 }
 
 function scoutColor(scoutId: string): string {
@@ -54,28 +54,6 @@ export default function AgentCommsPanel({ scouts, feed, onMessage, onRequestRout
 
   return (
     <>
-      {/* Toggle button — bottom-right corner */}
-      <button
-        onClick={isOpen ? closePanel : openPanel}
-        className="fixed bottom-6 right-6 z-30 flex items-center gap-2 px-3 py-2.5 rounded-xl
-          bg-[rgba(8,10,18,0.95)] border border-blue-500/30 text-blue-400
-          hover:border-blue-400/60 hover:text-blue-300 transition-all shadow-lg backdrop-blur-md"
-        title="Toggle Agent Comms"
-      >
-        {/* Radio tower icon */}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-          <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-          <line x1="12" y1="20" x2="12" y2="20" strokeLinecap="round" strokeWidth="3" />
-        </svg>
-        <span className="text-[11px] font-mono font-bold tracking-widest">COMMS</span>
-        {unreadCount > 0 && (
-          <span className="flex items-center justify-center h-4 w-4 rounded-full bg-red-500 text-[9px] font-mono font-bold text-white">
-            {unreadCount > 9 ? '9+' : unreadCount}
-          </span>
-        )}
-      </button>
 
       {/* Panel — slides in from right */}
       <div
