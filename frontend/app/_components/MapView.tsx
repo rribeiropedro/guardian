@@ -74,6 +74,25 @@ interface Props {
   scoutTrails?: ScoutTrail[];
 }
 
+function createScoutAvatarEl(color: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "scout-avatar-wrap";
+  wrap.innerHTML = `
+    <div class="scout-avatar-body">
+      <div class="scout-hat" style="background:${color}"></div>
+      <div class="scout-hat-brim" style="background:${color}"></div>
+      <div class="scout-head" style="background:${color}55;border-color:${color}"></div>
+      <div class="scout-torso" style="background:${color}"></div>
+      <div class="scout-legs">
+        <div class="scout-leg-l" style="background:${color}cc"></div>
+        <div class="scout-leg-r" style="background:${color}cc"></div>
+      </div>
+    </div>
+    <div class="scout-pin" style="border-top:6px solid ${color}"></div>
+  `;
+  return wrap;
+}
+
 export default function MapView({
   center,
   buildings,
@@ -91,6 +110,7 @@ export default function MapView({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const scoutMarkersRef = useRef<(mapboxgl.Marker | null)[]>(Array(MAX_SCOUT_TRAILS).fill(null));
   const buildingsRef = useRef<Building[]>(buildings);
   buildingsRef.current = buildings;
   const onMapDoubleClickRef = useRef(onMapDoubleClick);
@@ -160,6 +180,8 @@ export default function MapView({
       const trail = scoutTrailsRef.current?.[i];
       if (!trail || trail.points.length === 0) {
         src.setData({ type: "FeatureCollection", features: [] });
+        const m = scoutMarkersRef.current[i];
+        if (m) m.getElement().style.display = "none";
         continue;
       }
 
@@ -210,6 +232,14 @@ export default function MapView({
       });
 
       src.setData({ type: "FeatureCollection", features });
+
+      // Move the avatar marker to the current position
+      const marker = scoutMarkersRef.current[i];
+      if (marker) {
+        marker.setLngLat([currentPt.lng, currentPt.lat]);
+        const el = marker.getElement();
+        el.style.display = flyModeRef.current ? "none" : "block";
+      }
     }
 
     if (anyActive) {
@@ -528,11 +558,22 @@ export default function MapView({
               13, ["case", ["get", "isCurrent"], 4.5, 2.5],
               18, ["case", ["get", "isCurrent"], 9,   5],
             ],
-            "circle-opacity": ["case", ["get", "isCurrent"], 1, 0.6],
+            "circle-opacity": ["case", ["get", "isCurrent"], 0, 0.6],
             "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": ["case", ["get", "isCurrent"], 1.5, 0.8],
+            "circle-stroke-width": ["case", ["get", "isCurrent"], 0, 0.8],
           },
         });
+      }
+
+      // ── Scout avatar markers ─────────────────────────────────────────────────
+      for (let i = 0; i < MAX_SCOUT_TRAILS; i++) {
+        const color = TRAIL_COLORS[i];
+        const el = createScoutAvatarEl(color);
+        el.style.display = "none";
+        const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+          .setLngLat(DEFAULT_CENTER)
+          .addTo(map);
+        scoutMarkersRef.current[i] = marker;
       }
 
       // ── Tactical route overlay (fly mode) ───────────────────────────────────
@@ -1070,7 +1111,6 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
     if (flyMode) {
-      // fly mode: hide overlay cap, show dots
       map.setPaintProperty("triage-buildings-3d", "fill-extrusion-base", 0);
       map.setPaintProperty("triage-buildings-3d", "fill-extrusion-height", ["get", "height_m"]);
       map.setPaintProperty("triage-buildings-3d", "fill-extrusion-opacity", 0.28);
@@ -1079,7 +1119,6 @@ export default function MapView({
       map.setPaintProperty("triage-markers-glow", "circle-opacity", 0.2);
       map.setPaintProperty("triage-markers-glow", "circle-radius", ["interpolate", ["linear"], ["zoom"], 13, 6, 18, 18]);
     } else {
-      // bird's eye: show overlay cap, hide dots
       map.setPaintProperty("triage-buildings-3d", "fill-extrusion-base", ["get", "height_m"]);
       map.setPaintProperty("triage-buildings-3d", "fill-extrusion-height", ["+", ["get", "height_m"], 25]);
       map.setPaintProperty("triage-buildings-3d", "fill-extrusion-opacity", 0.85);
@@ -1089,6 +1128,17 @@ export default function MapView({
       map.setPaintProperty("triage-markers-glow", "circle-radius", 0);
     }
   }, [flyMode, mapLoaded]);
+
+  // Show/hide scout avatars based on fly mode
+  useEffect(() => {
+    for (const marker of scoutMarkersRef.current) {
+      if (!marker) continue;
+      const el = marker.getElement();
+      if (el.style.display !== "none") {
+        el.style.display = flyMode ? "none" : "block";
+      }
+    }
+  }, [flyMode]);
 
   // If an overlay needs space near a clicked building, zoom out slightly.
   useEffect(() => {

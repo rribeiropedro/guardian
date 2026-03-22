@@ -81,6 +81,31 @@ body {
   animation: crossref-flash 1.5s ease-out forwards;
 }
 
+/* Scout avatar animations */
+@keyframes scout-bob {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-4px); }
+}
+@keyframes scout-leg-l {
+  0%, 100% { transform: rotate(22deg); }
+  50%       { transform: rotate(-22deg); }
+}
+@keyframes scout-leg-r {
+  0%, 100% { transform: rotate(-22deg); }
+  50%       { transform: rotate(22deg); }
+}
+.scout-avatar-wrap { position: relative; width: 26px; height: 40px; cursor: pointer; }
+.scout-avatar-body { display: flex; flex-direction: column; align-items: center; gap: 0px; }
+.scout-hat        { width: 14px; height: 6px; border-radius: 7px 7px 0 0; margin-bottom: -2px; }
+.scout-hat-brim   { height: 3px; border-radius: 1px; width: 18px; margin-bottom: 0px; }
+.scout-head       { width: 13px; height: 13px; border-radius: 50%; border: 2px solid; opacity: 0.9; margin-top: 0px; }
+.scout-torso      { width: 15px; height: 11px; border-radius: 3px; }
+.scout-legs       { display: flex; gap: 4px; margin-top: 1px; }
+.scout-leg-l      { width: 5px; height: 9px; border-radius: 2px; transform-origin: top center; animation: scout-leg-l 1.2s ease-in-out infinite; }
+.scout-leg-r      { width: 5px; height: 9px; border-radius: 2px; transform-origin: top center; animation: scout-leg-r 1.2s ease-in-out infinite; }
+.scout-pin        { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; margin: 0 auto; }
+.mapboxgl-marker  { z-index: 10; }
+
 /* Landing page slide-in from right */
 @keyframes pageSlideIn {
   from {
