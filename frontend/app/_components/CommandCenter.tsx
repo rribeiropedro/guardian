@@ -18,8 +18,10 @@ import LocationSearch from './LocationSearch'
 
 // Mapbox uses browser APIs — must be dynamically imported with no SSR
 const MapView = dynamic(() => import('./MapView'), { ssr: false })
+const VT_CENTER = { lat: 37.2284, lng: -80.4234 }
 
 export default function CommandCenter() {
+  const router = useRouter()
   const [buildings, setBuildings] = useState<Building[]>([])
   const [scouts, setScouts] = useState<Map<string, Scout>>(new Map())
   const [activeScoutId, setActiveScoutId] = useState<string | null>(null)
@@ -27,8 +29,8 @@ export default function CommandCenter() {
   const [scenarioRunning, setScenarioRunning] = useState(false)
   const [route, setRoute] = useState<Waypoint[] | null>(null)
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
+  const [scenarioCenter, setScenarioCenter] = useState<{ lat: number; lng: number }>(VT_CENTER)
   const [crossRefLog, setCrossRefLog] = useState<string[]>([])
-  const [scenarioPrompt, setScenarioPrompt] = useState<string>('')
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
@@ -86,7 +88,7 @@ export default function CommandCenter() {
         const line = `SCOUT-${msg.from_scout.toUpperCase()} → SCOUT-${msg.to_scout.toUpperCase()}: ${msg.finding}`
         setCrossRefLog((prev) => [line, ...prev.slice(0, 19)])
         // Inject a system message into both scouts' chats
-        const crossMsg = (scoutId: string): ChatMessage => ({
+        const crossMsg = (): ChatMessage => ({
           role: 'scout',
           text: `[CROSS-REF from ${msg.from_scout.toUpperCase()}] ${msg.finding}\nImpact: ${msg.impact}${msg.resolution ? `\nResolution: ${msg.resolution}` : ''}`,
           timestamp: Date.now(),
@@ -95,7 +97,7 @@ export default function CommandCenter() {
           const next = new Map(prev)
           const to = next.get(msg.to_scout)
           if (to) {
-            next.set(msg.to_scout, { ...to, messages: [...to.messages, crossMsg(msg.to_scout)] })
+            next.set(msg.to_scout, { ...to, messages: [...to.messages, crossMsg()] })
           }
           return next
         })
@@ -117,7 +119,7 @@ export default function CommandCenter() {
   const { status: wsStatus, send } = useWebSocket(handleMessage)
 
   const handleScenarioSubmit = useCallback(
-    (prompt: string, center: { lat: number; lng: number }, radius_m: number) => {
+    (prompt: string, radius_m: number) => {
       setBuildings([])
       setScouts(new Map())
       setActiveScoutId(null)
@@ -125,11 +127,10 @@ export default function CommandCenter() {
       setRoute(null)
       setCrossRefLog([])
       setScenarioRunning(true)
-      setScenarioPrompt(prompt)
-      setMapCenter([center.lng, center.lat])
-      send({ type: 'start_scenario', prompt, center, radius_m })
+      setMapCenter([scenarioCenter.lng, scenarioCenter.lat])
+      send({ type: 'start_scenario', prompt, center: scenarioCenter, radius_m })
     },
-    [send],
+    [scenarioCenter, send],
   )
 
   const handleBuildingClick = useCallback((building: Building) => {
@@ -163,9 +164,9 @@ export default function CommandCenter() {
 
   const handleDeployScout = useCallback(
     (buildingId: string) => {
-      send({ type: 'deploy_scout', building_id: buildingId, prompt: scenarioPrompt || undefined })
+      send({ type: 'deploy_scout', building_id: buildingId })
     },
-    [send, scenarioPrompt],
+    [send],
   )
 
   const handleCloseScout = useCallback((scoutId: string) => {

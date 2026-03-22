@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 
 declare global {
   interface Window {
@@ -21,8 +22,11 @@ export default function ExplorePage() {
   const svsRef = useRef<google.maps.StreetViewService | null>(null)
   const posRef = useRef<{ lat: number; lng: number }>({ lat: DEFAULT_LAT, lng: DEFAULT_LNG })
   const linksRef = useRef<google.maps.StreetViewLink[]>([])
-  const movingRef = useRef(false)
-  const [apiLoaded, setApiLoaded] = useState(false)
+  const [apiLoaded, setApiLoaded] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      Boolean(window.google?.maps?.StreetViewPanorama),
+  )
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null)
@@ -31,10 +35,7 @@ export default function ExplorePage() {
   useEffect(() => {
     if (!API_KEY) return
 
-    if (window.google?.maps?.StreetViewPanorama) {
-      setApiLoaded(true)
-      return
-    }
+    if (window.google?.maps?.StreetViewPanorama) return
 
     window.initExploreStreetView = () => setApiLoaded(true)
 
@@ -79,7 +80,10 @@ export default function ExplorePage() {
 
     // Cache links whenever pano changes
     svRef.current.addListener('pano_changed', () => {
-      linksRef.current = svRef.current?.getLinks() ?? []
+      const links = svRef.current?.getLinks() ?? []
+      linksRef.current = links.filter(
+        (link): link is google.maps.StreetViewLink => link !== null,
+      )
     })
 
     // WASD keyboard controls
@@ -171,7 +175,7 @@ export default function ExplorePage() {
     <div className="fixed inset-0 bg-[#0a0a0f] flex flex-col">
       {/* Header */}
       <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-3 px-4 py-3">
-        <a
+        <Link
           href="/"
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-[rgba(8,10,18,0.85)] backdrop-blur-md text-xs font-mono text-slate-400 hover:text-white transition-colors"
         >
@@ -179,7 +183,7 @@ export default function ExplorePage() {
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           COMMAND CENTER
-        </a>
+        </Link>
 
         <form onSubmit={handleSearch} className="flex gap-2 flex-1 max-w-md">
           <input
